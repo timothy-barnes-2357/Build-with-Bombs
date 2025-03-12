@@ -1,5 +1,6 @@
 package net.tbarnes.diffusionmod;
 
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
@@ -38,6 +39,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.ItemStack;
 
+import net.minecraft.world.level.block.state.properties.*;
+
+
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(DiffusionMod.MODID)
 public class DiffusionMod
@@ -62,25 +66,253 @@ public class DiffusionMod
     public static final DeferredItem<Item> EXAMPLE_ITEM = ITEMS.registerSimpleItem("example_item", new Item.Properties().food(new FoodProperties.Builder()
             .alwaysEdible().nutrition(1).saturationModifier(2f).build()));
 
+    public static final BlockState[] BLOCK_STATES = new BlockState[] {
+            // 0 - minecraft:air
+            Blocks.AIR.defaultBlockState(),
+
+            // 1 - minecraft:dirt
+            Blocks.DIRT.defaultBlockState(),
+
+            // 2 - minecraft:white_concrete
+            Blocks.WHITE_CONCRETE.defaultBlockState(),
+
+            // 3 - minecraft:stone_brick_slab
+            Blocks.STONE_BRICK_SLAB.defaultBlockState(),
+
+            // 4 - minecraft:grass_block
+            Blocks.GRASS_BLOCK.defaultBlockState(),
+
+            // 5 - minecraft:oak_planks
+            Blocks.OAK_PLANKS.defaultBlockState(),
+
+            // 6 - minecraft:stone_bricks
+            Blocks.STONE_BRICKS.defaultBlockState(),
+
+            // 7 - minecraft:stripped_oak_wood
+            Blocks.STRIPPED_OAK_WOOD.defaultBlockState(),
+
+            // 8 - minecraft:end_stone_bricks
+            Blocks.END_STONE_BRICKS.defaultBlockState(),
+
+            // 9 - minecraft:white_wool
+            Blocks.WHITE_WOOL.defaultBlockState(),
+
+            // 10 - minecraft:green_concrete
+            Blocks.GREEN_CONCRETE.defaultBlockState(),
+
+            // 11 - minecraft:glass_pane[east=true,north=false,south=false,west=true]
+            Blocks.AIR.defaultBlockState(),
+
+            // 12 - minecraft:smooth_stone
+            Blocks.SMOOTH_STONE.defaultBlockState(),
+
+            // 13 - minecraft:brown_shulker_box
+            Blocks.BROWN_SHULKER_BOX.defaultBlockState(),
+
+            // 14 - minecraft:glass_pane[east=false,north=true,south=true,west=false]
+            Blocks.AIR.defaultBlockState(),
+
+            // 15 - minecraft:oak_slab
+            Blocks.OAK_SLAB.defaultBlockState(),
+
+            // 16 - minecraft:sandstone
+            Blocks.SANDSTONE.defaultBlockState(),
+
+            // 17 - minecraft:bricks
+            Blocks.BRICKS.defaultBlockState(),
+
+            // 18 - minecraft:stone_brick_stairs[facing=north,half=bottom,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 19 - minecraft:stone_brick_stairs[facing=south,half=bottom,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 20 - minecraft:stone_brick_stairs[facing=east,half=bottom,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 21 - minecraft:stone_brick_stairs[facing=west,half=bottom,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 22 - minecraft:stone_brick
+            Blocks.STONE_BRICKS.defaultBlockState(),
+
+            // 23 - minecraft:bookshelf
+            Blocks.BOOKSHELF.defaultBlockState(),
+
+            // 24 - minecraft:glass
+            Blocks.GLASS.defaultBlockState(),
+
+            // 25 - minecraft:gravel
+            Blocks.GRAVEL.defaultBlockState(),
+
+            // 26 - minecraft:stone_brick_stairs[facing=south,half=top,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.TOP)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 27 - minecraft:stone_brick_stairs[facing=north,half=top,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.TOP)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 28 - minecraft:stone_brick_stairs[facing=west,half=top,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.TOP)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 29 - minecraft:stone_brick_stairs[facing=east,half=top,shape=straight]
+            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
+                    .setValue(BlockStateProperties.HALF, Half.TOP)
+                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+
+            // 30 - minecraft:dropper
+            Blocks.DROPPER.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+            Blocks.AIR.defaultBlockState(),
+    };
+
+    public static final int[] DUMMY_IDS = new int[] {
+            1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,10,4,4,4,2,2,2,2,2,4,6,6,6,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,6,6,6,2,0,0,0,6,6,6,20,20,6,6,0,0,0,2,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,29,29,29,0,0,0,0,3,3,3,3,3,3,2,2,2,2,0,0,0,0,0,0,0,0,0,0,3,3,2,3,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,7,7,7,7,7,6,30,30,30,0,0,0,0,0,0,0,0,0,0,2,30,30,30,0,0,0,0,0,0,0,0,0,0,2,30,30,30,0,0,0,0,0,0,0,0,0,0,2,21,21,21,0,0,0,3,3,3,3,3,3,3,2,2,2,2,0,0,0,0,3,3,3,0,0,0,3,3,8,3,0,0,0,0,0,0,3,3,3,0,3,3,3,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,10,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,6,6,7,7,6,6,0,0,0,0,0,0,0,2,74,2,36,36,2,2,0,0,0,0,0,0,0,2,14,2,35,35,2,2,0,0,0,0,0,0,0,2,14,2,29,29,2,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,2,2,2,2,2,8,8,8,0,0,0,0,0,0,3,8,2,2,2,8,3,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,10,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,5,5,5,5,5,6,0,0,0,0,0,0,0,2,18,11,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,8,3,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,6,6,6,2,0,0,0,6,5,5,5,5,5,6,0,0,0,2,0,0,0,19,0,11,19,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,3,3,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,5,5,5,5,5,6,0,20,0,0,0,0,0,19,18,66,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,6,6,7,6,0,0,0,0,2,0,0,0,0,0,2,2,36,2,0,0,0,0,2,0,0,0,0,0,2,2,35,2,0,0,0,0,2,0,0,0,0,0,2,2,2,2,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,0,0,0,6,0,0,0,0,2,0,0,0,53,0,2,0,0,2,0,0,0,0,2,0,0,0,0,0,2,0,0,2,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,1,1,1,2,0,0,0,6,5,5,5,5,5,0,0,0,6,2,0,0,0,2,0,0,0,19,0,38,0,0,2,0,0,0,0,2,0,0,0,0,0,37,0,0,2,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,3,2,2,0,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,0,0,0,6,0,0,0,0,2,0,0,0,19,0,0,0,0,18,0,0,0,0,2,0,0,0,0,0,0,0,0,11,0,0,0,0,2,0,0,0,0,0,0,0,39,11,0,0,0,3,2,2,0,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    };
+
+
+    static BlockPos userClickedPos = new BlockPos(0, 0, 0);
+    static Boolean isDenoising = false;
+    static int denoiseCount = 0;
+
+    @SubscribeEvent
+    public void diffusionTick(PlayerTickEvent.Post event) {
+
+        if (isDenoising) {
+
+            if (denoiseCount > 200) {
+                isDenoising = false;
+                denoiseCount = 0;
+            } else {
+                Level level = event.getEntity().level();
+
+                for (int x = 0; x < 14; x++) {
+                    for (int y = 0; y < 14; y++) {
+                        for (int z = 0; z < 14; z++) {
+
+                            int new_id = DUMMY_IDS[x + 14 * y + (14 * 14) * z];
+
+                            BlockPos relative = new BlockPos(
+                                    userClickedPos.getX() + x,
+                                    userClickedPos.getY() + y + denoiseCount,
+                                    userClickedPos.getZ() + z);
+
+                            BlockState state = BLOCK_STATES[new_id];
+
+                            level.setBlockAndUpdate(relative, state);
+                        }
+                    }
+                }
+
+                denoiseCount += 1;
+            }
+        }
+    }
+
     public static final DeferredItem<Item> DIRT_EGG = ITEMS.register("dirt_egg", () ->
             new Item(new Item.Properties().stacksTo(16)) {
                 @Override
                 public InteractionResult useOn(UseOnContext context) {
                     if (!context.getLevel().isClientSide) {
                         BlockPos pos = context.getClickedPos();
-                        Level level = context.getLevel();
 
-                        // Get the current block state at the clicked position
-                        BlockState currentState = level.getBlockState(pos);
-                        // Get the block type from the current state
-                        Block block = currentState.getBlock();
-                        // Get the default state for that block type
-                        BlockState defaultState = block.defaultBlockState();
+                        userClickedPos = pos;
+                        isDenoising = true;
 
-                        // Apply the default state to the position
-                        level.setBlockAndUpdate(pos, defaultState);
+                        //BlockState currentState = level.getBlockState(pos);
+                        //Block block = currentState.getBlock();
+                        //BlockState defaultState = block.defaultBlockState();
+                        //level.setBlockAndUpdate(pos, defaultState);
 
-                        // Consume one egg
                         ItemStack stack = context.getItemInHand();
                         stack.shrink(1);
 
@@ -107,6 +339,8 @@ public class DiffusionMod
     {
         // Register the commonSetup method for modloading
         modEventBus.addListener(this::commonSetup);
+
+        //NeoForge.EVENT_BUS.addListener(DiffusionMod::denoiseTick);
 
         // Register the Deferred Register to the mod event bus so blocks get registered
         BLOCKS.register(modEventBus);
