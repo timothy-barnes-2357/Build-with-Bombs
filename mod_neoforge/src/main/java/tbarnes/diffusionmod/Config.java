@@ -1,4 +1,4 @@
-package net.tbarnes.diffusionmod;
+package tbarnes.diffusionmod;
 
 import java.util.List;
 import java.util.Set;

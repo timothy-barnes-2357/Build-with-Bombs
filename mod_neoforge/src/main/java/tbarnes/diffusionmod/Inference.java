@@ -1,4 +1,4 @@
-package net.tbarnes.diffusionmod;
+package tbarnes.diffusionmod;
 
 public class Inference {
     public native int readBlockFromCachedTimestep(int x, int y, int z);
