@@ -16,10 +16,9 @@
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
 
-#define NO_ERROR 0
-#define ERROR_INVALID_ARG 1
-#define ERROR_FAILED_OPERATION 2
-#define ERROR_INVALID_OPERATION 3
+#define INFER_ERROR_INVALID_ARG 1
+#define INFER_ERROR_FAILED_OPERATION 2
+#define INFER_ERROR_INVALID_OPERATION 3
 
 #define ID_AIR 0
 
@@ -45,9 +44,9 @@ static IExecutionContext* context;
 
 CRITICAL_SECTION critical_section;
 
-static bool init_called = false;
-static bool init_complete = false;
-static bool diffusion_running = false;
+static volatile bool init_called = false;
+static volatile bool init_complete = false;
+static volatile bool diffusion_running = false;
 
 const int n_U = 5;    /* Number of inpainting steps per timestep */
 const int n_T = 1000; /* Number of timesteps */
@@ -130,11 +129,20 @@ static void* cuda_post_noise_addition;
 static HANDLE denoise_thread_handle;
 static HANDLE start_denoise_event;
 
-static int32_t global_timestep = 0;
+static volatile int32_t global_timestep = 0;
+
+#define cuda_check(expression) { \
+        cudaError_t err = (expression);\
+        if (err != cudaSuccess) { \
+            printf("CUDA error at line %d. (%s)\n", __LINE__, cudaGetErrorString(err)); \
+            return INFER_ERROR_FAILED_OPERATION; \
+        } \
+    }
+
 
 static void check(cudaError_t err) {
     if (err != cudaSuccess) {
-        printf("%s\n", cudaGetErrorString(err));
+        printf("CUDA: %s\n", cudaGetErrorString(err));
         fflush(stdout);
         exit(EXIT_FAILURE);
     }
@@ -165,7 +173,7 @@ static float* load_file(const char* filename, int file_size) {
     size_t bytes_read = fread(contents, 1, ftell_size, file);
 
     if (bytes_read != file_size) {
-        printf("%s size doesn't match (%d != %d)\n", filename, bytes_read, file_size);
+        printf("%s size doesn't match (%u != %u)\n", filename, bytes_read, file_size);
         exit(0);
     }
 
@@ -175,12 +183,11 @@ static float* load_file(const char* filename, int file_size) {
     return (float*)contents;
 }
 
-
 static unsigned long denoise_thread(void* unused) {
 
     char cwd_buffer[1024];
 
-    if (_getcwd(cwd_buffer, sizeof(cwd_buffer)) != NULL) {
+    if (_getcwd(cwd_buffer, sizeof(cwd_buffer))) {
         printf("Current working directory: %s\n", cwd_buffer);
     } else {
         perror("Failed to get current working directory");
@@ -199,7 +206,7 @@ static unsigned long denoise_thread(void* unused) {
 
     if (!file) {
         printf("Error opening engine file: %s\n", engine_file);
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     fseek(file, 0, SEEK_END);
@@ -209,7 +216,7 @@ static unsigned long denoise_thread(void* unused) {
     char* engine_data = (char*)malloc(engine_size);
 
     if (!engine_data) {
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     fread(engine_data, 1, engine_size, file);
@@ -228,7 +235,7 @@ static unsigned long denoise_thread(void* unused) {
     IRuntime* runtime = createInferRuntime(gLogger);
 
     if (!runtime) {
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     printf("Created runtime\n\n");
@@ -237,7 +244,7 @@ static unsigned long denoise_thread(void* unused) {
     free(engine_data);
 
     if (!engine) {
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     printf("Finished deserializing CUDA engine\n\n");
@@ -245,7 +252,7 @@ static unsigned long denoise_thread(void* unused) {
     context = engine->createExecutionContext();
 
     if (!context) {
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     printf("Finished trt init\n");
@@ -267,10 +274,15 @@ static unsigned long denoise_thread(void* unused) {
 
         int totalSize = elementSize;
         printf("Name %d = %s, Shape = [", i, name);
+
         for (int j = 0; j < dims.nbDims; j++) {
             printf("%d", dims.d[j]);
+
             totalSize *= dims.d[j];
-            if (j < dims.nbDims - 1) printf(", ");
+
+            if (j < dims.nbDims - 1) {
+                printf(", ");
+            }
         }
         printf("], Size in Bytes = %d\n", totalSize);
     }
@@ -283,43 +295,43 @@ static unsigned long denoise_thread(void* unused) {
     alpha_bar      = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha_bar.bin", size_alpha_bar);
     beta           = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_beta.bin", size_beta);
 
-    check(cudaMalloc(&cuda_t, sizeof(int32_t)));
-    check(cudaMalloc(&cuda_x_t, size_x)); 
-    check(cudaMalloc(&cuda_x_out, size_x)); // Output produced by the model
-    check(cudaMalloc(&cuda_x_context, size_x_context));
-    check(cudaMalloc(&cuda_x_mask, size_x_mask));
-    check(cudaMalloc(&cuda_normal_epsilon, size_normal_epsilon));
-    check(cudaMalloc(&cuda_normal_z, size_normal_z));
-    check(cudaMalloc(&cuda_alpha_t, sizeof(float)));
-    check(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
-    check(cudaMalloc(&cuda_beta_t, sizeof(float)));
-    check(cudaMalloc(&cuda_beta_t_minus_1, sizeof(float)));
-    check(cudaMalloc(&cuda_post_noise_addition, sizeof(float)));
+    cuda_check(cudaMalloc(&cuda_t, sizeof(int32_t)));
+    cuda_check(cudaMalloc(&cuda_x_t, size_x)); 
+    cuda_check(cudaMalloc(&cuda_x_out, size_x)); // Output produced by the model
+    cuda_check(cudaMalloc(&cuda_x_context, size_x_context));
+    cuda_check(cudaMalloc(&cuda_x_mask, size_x_mask));
+    cuda_check(cudaMalloc(&cuda_normal_epsilon, size_normal_epsilon));
+    cuda_check(cudaMalloc(&cuda_normal_z, size_normal_z));
+    cuda_check(cudaMalloc(&cuda_alpha_t, sizeof(float)));
+    cuda_check(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
+    cuda_check(cudaMalloc(&cuda_beta_t, sizeof(float)));
+    cuda_check(cudaMalloc(&cuda_beta_t_minus_1, sizeof(float)));
+    cuda_check(cudaMalloc(&cuda_post_noise_addition, sizeof(float)));
 
-    if (!context->setTensorAddress("t", cuda_t))                          { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("x_t", cuda_x_t))                      { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("x_out", cuda_x_out))                  { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("context", cuda_x_context))            { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("mask", cuda_x_mask))                  { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("normal_epsilon", cuda_normal_epsilon)){ return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("normal_z", cuda_normal_z))            { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("alpha_t", cuda_alpha_t))              { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t))      { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("beta_t", cuda_beta_t))                { return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("beta_t_minus_1", cuda_beta_t_minus_1)){ return ERROR_FAILED_OPERATION; }
-    if (!context->setTensorAddress("post_noise_addition", cuda_post_noise_addition)){ return ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("t", cuda_t))                          { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("x_t", cuda_x_t))                      { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("x_out", cuda_x_out))                  { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("context", cuda_x_context))            { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("mask", cuda_x_mask))                  { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("normal_epsilon", cuda_normal_epsilon)){ return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("normal_z", cuda_normal_z))            { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("alpha_t", cuda_alpha_t))              { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t))      { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("beta_t", cuda_beta_t))                { return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("beta_t_minus_1", cuda_beta_t_minus_1)){ return INFER_ERROR_FAILED_OPERATION; }
+    if (!context->setTensorAddress("post_noise_addition", cuda_post_noise_addition)){ return INFER_ERROR_FAILED_OPERATION; }
 
     init_complete = true;
 
     cudaStream_t stream;
-    check(cudaStreamCreate(&stream));
+    cuda_check(cudaStreamCreate(&stream));
 
     for (;;) {
         WaitForSingleObject(start_denoise_event, INFINITE);
 
-        /* Copy the context and mask tensors to the GPU */
-        check(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
-        check(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
+        /* Copy the "context" and "mask" tensors to the GPU */
+        cuda_check(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
+        cuda_check(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
 
         /* Zero-out the context and mask CPU buffers so they're clean
          * for the next diffusion run. We don't need the CPU buffers anymore
@@ -335,8 +347,8 @@ static unsigned long denoise_thread(void* unused) {
                 float post_noise_addition = (u < n_U && t > 0) ? 1.0f : 0.0f;
                 int load_index = t * n_U + u;
 
-                printf("load_index %d\n", load_index);
-                fflush(stdout);
+                //printf("load_index %d\n", load_index);
+                //fflush(stdout);
 
                 int offset_normal_epsilon = load_index * size_normal_epsilon;
                 int offset_normal_z       = load_index * size_normal_z;
@@ -349,17 +361,17 @@ static unsigned long denoise_thread(void* unused) {
                 float beta_t = beta[t];
                 float beta_t_minus_1 = t > 0 ? beta[t - 1] : 0.0;
 
-                check(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_x_t, x_t, size_x, cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_normal_epsilon, normal_epsilon_t, size_normal_epsilon, cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_normal_z, normal_z_t, size_normal_z, cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_x_t, x_t, size_x, cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_normal_epsilon, normal_epsilon_t, size_normal_epsilon, cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_normal_z, normal_z_t, size_normal_z, cudaMemcpyHostToDevice));
 
-                check(cudaMemcpy(cuda_alpha_t, &alpha_t, sizeof(float), cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar_t, sizeof(float), cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_beta_t, &beta_t, sizeof(float), cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_beta_t_minus_1, &beta_t_minus_1, sizeof(float), cudaMemcpyHostToDevice));
-                check(cudaMemcpy(cuda_post_noise_addition, &post_noise_addition, sizeof(float), cudaMemcpyHostToDevice));
-               
+                cuda_check(cudaMemcpy(cuda_alpha_t, &alpha_t, sizeof(float), cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar_t, sizeof(float), cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_beta_t, &beta_t, sizeof(float), cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_beta_t_minus_1, &beta_t_minus_1, sizeof(float), cudaMemcpyHostToDevice));
+                cuda_check(cudaMemcpy(cuda_post_noise_addition, &post_noise_addition, sizeof(float), cudaMemcpyHostToDevice));
+
                 bool enqueue_succeeded = context->enqueueV3(stream);
 
                 if (!enqueue_succeeded) {
@@ -367,15 +379,17 @@ static unsigned long denoise_thread(void* unused) {
                     return 0;
                 }
 
-                check(cudaStreamSynchronize(stream));
+                cuda_check(cudaStreamSynchronize(stream));
 
                 EnterCriticalSection(&critical_section);
-                check(cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost));
+                cudaError_t result = cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost);
                 LeaveCriticalSection(&critical_section);
+
+                cuda_check(result);
             }
 
             global_timestep = t;
-            /* TODO: I need to copy out the x_t only once it's completed all n_U iterations.
+            /* TODO: I should copy out the x_t only once it's completed all n_U iterations.
              * Otherwise, I'll be copying out a partially in-painted sample */
         }
 
@@ -393,15 +407,15 @@ extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
 
     if (init_called) {
-        return ERROR_INVALID_OPERATION;
+        return INFER_ERROR_INVALID_OPERATION;
     }
 
     /* Create the event that each run of the denoising thread is triggered by */
-    start_denoise_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+    start_denoise_event = CreateEvent(0, 0, 0, 0);
 
     if (!start_denoise_event) {
         printf("CreateEvent failed (%d)\n", GetLastError());
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     /* Create the critical section for making sure that the denoising thread isn't 
@@ -410,11 +424,11 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
 
     /* Create and launch the denoising thread */
     DWORD thread_id;
-    HANDLE denoise_thread_handle = CreateThread(NULL, 0, denoise_thread, NULL, 0, &thread_id);
+    HANDLE denoise_thread_handle = CreateThread(0, 0, denoise_thread, 0, 0, &thread_id);
 
     if (!denoise_thread_handle) {
         printf("CreateThread error: %d\n", GetLastError());
-        return ERROR_FAILED_OPERATION;
+        return INFER_ERROR_FAILED_OPERATION;
     }
 
     init_called = true;
@@ -440,7 +454,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
         z < 0 || z >= CHUNK_WIDTH ||
         block_id < 0 || block_id >= BLOCK_ID_COUNT) {
 
-        return ERROR_INVALID_ARG;
+        return INFER_ERROR_INVALID_ARG;
     }
 
     /* Use the embedding matrix to find the vector for this block_id. */
@@ -461,10 +475,12 @@ extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* unused2) {
     
     if (diffusion_running) {
-        return ERROR_INVALID_OPERATION;
+        return INFER_ERROR_INVALID_OPERATION;
     }
 
+    global_timestep = n_T;
     diffusion_running = true;
+
     SetEvent(start_denoise_event);
 
     return NO_ERROR;
@@ -520,7 +536,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void*
                     }
                 }
 
-                cached_block_ids[x][y][z] = largest_id;
+                cached_block_ids[x-1][y-1][z-1] = largest_id;
             }
         }
     }
@@ -578,7 +594,40 @@ void main() {
 
     printf("End of main");
 
+    int32_t last_step = 1000;
+
     while (1) {
+
+        int32_t step = Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(NULL, NULL);
+
+        if (step < last_step) {
+            last_step = step;
+
+
+            Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(NULL, NULL);
+
+            float sum = 0.0f;
+
+            for (int x = 0; x < 14; x++) {
+                for (int y = 0; y < 14; y++) {
+                    for (int z = 0; z < 14; z++) {
+                        //int32_t block_id = Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(NULL, NULL, 
+                        //        x, y, z);
+                        //if (block_id != 0) {
+                        //    non_air_count += 1;
+                        //}
+                        //
+                        //sum += x_t[0][x][y][z] + x_t[1][x][y][z] + x_t[2][x][y][z];
+                        sum += (float) Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(NULL, NULL, x, y, z);
+
+                    }
+                }
+            }
+            
+            printf("step = %d, sum = %f\n", step_after_cache, sum);
+            fflush(stdout);
+        }
     }
 }
 #endif
+

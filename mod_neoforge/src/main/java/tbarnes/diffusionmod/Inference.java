@@ -5,6 +5,7 @@ public class Inference {
     public native int init();
     public native int setContextBlock(int x, int y, int z, int block_id);
     public native int startDiffusion();
+    public native int getCurrentTimestep();
     public native int cacheCurrentTimestepForReading();
     public native int readBlockFromCachedTimestep(int x, int y, int z);
 

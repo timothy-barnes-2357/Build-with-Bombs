@@ -266,7 +266,8 @@ public class DiffusionMod
     static Boolean isDenoising = false;
     static int denoiseCount = 0;
 
-    static Boolean doneOnce = false;
+    static Boolean doneInit = false;
+    static Boolean startedDiffusion = false;
     static int previousTimestep = 1000;
 
     @SubscribeEvent
@@ -274,17 +275,19 @@ public class DiffusionMod
 
         if (isDenoising) {
 
-            if (!doneOnce) {
+            if (!doneInit) {
                 infer.init();
-                infer.startDiffusion();
-                doneOnce = true;
+                doneInit = true;
             }
 
-            if (denoiseCount > 200) {
-                isDenoising = false;
-                denoiseCount = 0;
-            } else {
+            if (!startedDiffusion) {
+                infer.startDiffusion();
+                startedDiffusion = true;
+            }
 
+            int timestep = infer.getCurrentTimestep();
+
+            if (timestep < previousTimestep) {
                 infer.cacheCurrentTimestepForReading();
 
                 Level level = event.getEntity().level();
@@ -298,7 +301,7 @@ public class DiffusionMod
 
                             BlockPos relative = new BlockPos(
                                     userClickedPos.getX() + x,
-                                    userClickedPos.getY() + y + denoiseCount,
+                                    userClickedPos.getY() + y,
                                     userClickedPos.getZ() + z);
 
                             BlockState state = BLOCK_STATES[new_id];
@@ -307,9 +310,12 @@ public class DiffusionMod
                         }
                     }
                 }
+            }
 
-                //denoiseCount += 1;
-                //denoiseCount = 201;
+            if (timestep == 0) {
+                isDenoising = false;
+                startedDiffusion = false;
+                previousTimestep = 1000;
             }
         }
     }
@@ -321,8 +327,10 @@ public class DiffusionMod
                     if (!context.getLevel().isClientSide) {
                         BlockPos pos = context.getClickedPos();
 
-                        userClickedPos = pos;
-                        isDenoising = true;
+                        if (!isDenoising) {
+                            userClickedPos = pos;
+                            isDenoising = true;
+                        }
 
                         //BlockState currentState = level.getBlockState(pos);
                         //Block block = currentState.getBlock();
