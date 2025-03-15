@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 #include <windows.h>
-//#include <direct.h>
+
+#include <direct.h>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -15,8 +16,10 @@
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
 
+#define NO_ERROR 0
 #define ERROR_INVALID_ARG 1
 #define ERROR_FAILED_OPERATION 2
+#define ERROR_INVALID_OPERATION 3
 
 #define ID_AIR 0
 
@@ -42,6 +45,7 @@ static IExecutionContext* context;
 
 CRITICAL_SECTION critical_section;
 
+static bool init_called = false;
 static bool init_complete = false;
 static bool diffusion_running = false;
 
@@ -123,6 +127,11 @@ static void* cuda_beta_t;
 static void* cuda_beta_t_minus_1;
 static void* cuda_post_noise_addition;
 
+static HANDLE denoise_thread_handle;
+static HANDLE start_denoise_event;
+
+static int32_t global_timestep = 0;
+
 static void check(cudaError_t err) {
     if (err != cudaSuccess) {
         printf("%s\n", cudaGetErrorString(err));
@@ -166,96 +175,31 @@ static float* load_file(const char* filename, int file_size) {
     return (float*)contents;
 }
 
-static unsigned long denoising_thread(void *param) {
 
-    diffusion_running = true;
+static unsigned long denoise_thread(void* unused) {
 
-    cudaStream_t stream;
-    check(cudaStreamCreate(&stream));
+    char cwd_buffer[1024];
 
-    for (int t = n_T - 1; t >= 0; t -= 1) {
-        for (int u = 0; u < n_U; u++) {
-            float post_noise_addition = (u < n_U && t > 0) ? 1.0f : 0.0f;
-            int load_index = t * n_U + u;
-
-            printf("load_index %d\n", load_index);
-            fflush(stdout);
-
-            int offset_normal_epsilon = load_index * size_normal_epsilon;
-            int offset_normal_z       = load_index * size_normal_z;
-
-            float* normal_epsilon_t = (float*)((uint8_t *)normal_epsilon + offset_normal_epsilon);
-            float* normal_z_t       = (float*)((uint8_t *)normal_z + offset_normal_z);
-
-            float alpha_t = alpha[t];
-            float alpha_bar_t = alpha_bar[t];
-            float beta_t = beta[t];
-            float beta_t_minus_1 = t > 0 ? beta[t - 1] : 0.0;
-
-            check(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_x_t, x_t, size_x, cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_normal_epsilon, normal_epsilon_t, size_normal_epsilon, cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_normal_z, normal_z_t, size_normal_z, cudaMemcpyHostToDevice));
-
-            check(cudaMemcpy(cuda_alpha_t, &alpha_t, sizeof(float), cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar_t, sizeof(float), cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_beta_t, &beta_t, sizeof(float), cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_beta_t_minus_1, &beta_t_minus_1, sizeof(float), cudaMemcpyHostToDevice));
-            check(cudaMemcpy(cuda_post_noise_addition, &post_noise_addition, sizeof(float), cudaMemcpyHostToDevice));
-           
-            bool enqueue_succeeded = context->enqueueV3(stream);
-
-            if (!enqueue_succeeded) {
-                printf("enqueueV3 failed\n");
-                return 0;
-            }
-
-            check(cudaStreamSynchronize(stream));
-
-            //EnterCriticalSection(&critical_section);
-            check(cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost));
-            //LeaveCriticalSection(&critical_section);
-        }
+    if (_getcwd(cwd_buffer, sizeof(cwd_buffer)) != NULL) {
+        printf("Current working directory: %s\n", cwd_buffer);
+    } else {
+        perror("Failed to get current working directory");
+        return 1;
     }
 
-    check(cudaStreamDestroy(stream));
-
-    diffusion_running = false;
-
-    return 0;
-}
-
-/** 
- * @brief init 
- * @return 0 on success
- */
-extern "C" __declspec(dllexport)
-int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
-
-    //char buffer[1024];
-
-    //if (_getcwd(buffer, sizeof(buffer)) != NULL) {
-    //    printf("Current working directory: %s\n", buffer);
-    //} else {
-    //    perror("Failed to get current working directory");
-    //    return 1;
-    //}
-
-    printf("TensorRT version: %d\n", getInferLibVersion());
     int cuda_version;
     cudaRuntimeGetVersion(&cuda_version);
+
+    printf("TensorRT version: %d\n", getInferLibVersion());
     printf("CUDA runtime version: %d\n", cuda_version);
 
-    /* Initialize the critical section we use to synchronize the main thread and the 
-     * CUDA wait thread. */
-    //InitializeCriticalSection(&critical_section);
     const char* engine_file = "C:/Users/tbarnes/Desktop/projects/voxel-diffusion-minecraft-mod/model/ddim_single_update.trt";
-    //const char* engine_file = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update_fp16.trt";
 
     FILE* file = fopen(engine_file, "rb");
+
     if (!file) {
         printf("Error opening engine file: %s\n", engine_file);
-        return 1;
+        return ERROR_FAILED_OPERATION;
     }
 
     fseek(file, 0, SEEK_END);
@@ -333,10 +277,6 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
 
     printf("Number of layers in engine: %d\n", engine->getNbLayers());
 
-    //x_all = load_file("../experiments/TestTensorRT/save_x_all.bin", instances * size_x);
-    //x_context = load_file("../experiments/TestTensorRT/save_context.bin", size_x_context);
-    //x_mask = load_file("../experiments/TestTensorRT/save_mask.bin", size_x_mask);
-
     normal_epsilon = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_epsilon.bin", instances * size_normal_epsilon);
     normal_z       = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_z.bin", instances * size_normal_z);
     alpha          = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha.bin", size_alpha);
@@ -371,8 +311,114 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
 
     init_complete = true;
 
-    fflush(stdout);
+    cudaStream_t stream;
+    check(cudaStreamCreate(&stream));
+
+    for (;;) {
+        WaitForSingleObject(start_denoise_event, INFINITE);
+
+        /* Copy the context and mask tensors to the GPU */
+        check(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
+        check(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
+
+        /* Zero-out the context and mask CPU buffers so they're clean
+         * for the next diffusion run. We don't need the CPU buffers anymore
+         * since context and mask are already on the GPU. */
+        memset(x_context, 0, sizeof(x_context));
+        memset(x_mask, 0, sizeof(x_mask));
+
+        /* The x_t buffer needs to start with noise */
+        memcpy(x_t, normal_epsilon, size_normal_epsilon);
+
+        for (int t = n_T - 1; t >= 0; t -= 1) {
+            for (int u = 0; u < n_U; u++) {
+                float post_noise_addition = (u < n_U && t > 0) ? 1.0f : 0.0f;
+                int load_index = t * n_U + u;
+
+                printf("load_index %d\n", load_index);
+                fflush(stdout);
+
+                int offset_normal_epsilon = load_index * size_normal_epsilon;
+                int offset_normal_z       = load_index * size_normal_z;
+
+                float* normal_epsilon_t = (float*)((uint8_t *)normal_epsilon + offset_normal_epsilon);
+                float* normal_z_t       = (float*)((uint8_t *)normal_z + offset_normal_z);
+
+                float alpha_t = alpha[t];
+                float alpha_bar_t = alpha_bar[t];
+                float beta_t = beta[t];
+                float beta_t_minus_1 = t > 0 ? beta[t - 1] : 0.0;
+
+                check(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_x_t, x_t, size_x, cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_normal_epsilon, normal_epsilon_t, size_normal_epsilon, cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_normal_z, normal_z_t, size_normal_z, cudaMemcpyHostToDevice));
+
+                check(cudaMemcpy(cuda_alpha_t, &alpha_t, sizeof(float), cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar_t, sizeof(float), cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_beta_t, &beta_t, sizeof(float), cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_beta_t_minus_1, &beta_t_minus_1, sizeof(float), cudaMemcpyHostToDevice));
+                check(cudaMemcpy(cuda_post_noise_addition, &post_noise_addition, sizeof(float), cudaMemcpyHostToDevice));
+               
+                bool enqueue_succeeded = context->enqueueV3(stream);
+
+                if (!enqueue_succeeded) {
+                    printf("enqueueV3 failed\n");
+                    return 0;
+                }
+
+                check(cudaStreamSynchronize(stream));
+
+                EnterCriticalSection(&critical_section);
+                check(cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost));
+                LeaveCriticalSection(&critical_section);
+            }
+
+            global_timestep = t;
+            /* TODO: I need to copy out the x_t only once it's completed all n_U iterations.
+             * Otherwise, I'll be copying out a partially in-painted sample */
+        }
+
+        diffusion_running = false;
+    }
+
     return 0;
+}
+
+/** 
+ * @brief init 
+ * @return 0 on success
+ */
+extern "C" __declspec(dllexport)
+int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
+
+    if (init_called) {
+        return ERROR_INVALID_OPERATION;
+    }
+
+    /* Create the event that each run of the denoising thread is triggered by */
+    start_denoise_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+    if (!start_denoise_event) {
+        printf("CreateEvent failed (%d)\n", GetLastError());
+        return ERROR_FAILED_OPERATION;
+    }
+
+    /* Create the critical section for making sure that the denoising thread isn't 
+     * overwritting x_t while we're trying to cache it for reading from Java */
+    InitializeCriticalSection(&critical_section);
+
+    /* Create and launch the denoising thread */
+    DWORD thread_id;
+    HANDLE denoise_thread_handle = CreateThread(NULL, 0, denoise_thread, NULL, 0, &thread_id);
+
+    if (!denoise_thread_handle) {
+        printf("CreateThread error: %d\n", GetLastError());
+        return ERROR_FAILED_OPERATION;
+    }
+
+    init_called = true;
+    return NO_ERROR;
 }
 
 /** 
@@ -404,7 +450,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
     }
     
     x_mask[x][y][z] = 1.0f;
-    return 0;
+
+    return NO_ERROR;
 }
 
 /** 
@@ -413,39 +460,24 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
 extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* unused2) {
     
-    if (!init_complete || diffusion_running) {
-        return 1;
+    if (diffusion_running) {
+        return ERROR_INVALID_OPERATION;
     }
-    
-    /* Copy the context and mask tensors to the GPU */
-    check(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
-    check(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
 
-    /* Zero-out the context and mask CPU buffers so they're clean
-     * for the next diffusion run. We don't need the CPU buffers anymore
-     * since context and mask are already on the GPU. */
-    memset(x_context, 0, sizeof(x_context));
-    memset(x_mask, 0, sizeof(x_mask));
+    diffusion_running = true;
+    SetEvent(start_denoise_event);
 
-    /* The x_t buffer needs to start with noise */
-    memcpy(x_t, normal_epsilon, size_normal_epsilon);
+    return NO_ERROR;
+}
 
-    printf("Starting diffusion thread\n");
-
-    /* TODO:
-     * - Figure out a thread safe way to have a separate diffusion worker thread 
-     * - Is CUDA and TensorRT thread safe? If not, then I need init on this worker
-     *   thread.*/
-
-    //DWORD thread_id;
-
-    //HANDLE thread_handle = CreateThread(NULL, 0, denoising_main_thread, NULL, 0, &thread_id);
-    //if (thread_handle == NULL) {
-    //    printf("CreateThread error: %d\n", GetLastError());
-    //    return ERROR_FAILED_OPERATION;
-    //}
-    denoising_thread(0);
-    return 0;
+/** 
+ * @brief 
+ * @return Integer for cached timestep in range [0, 1000)
+ * Timestep 0 is the fully denoised time.
+ */
+extern "C" __declspec(dllexport)
+int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, void* unused2) { 
+    return global_timestep;
 }
 
 /** 
@@ -456,9 +488,9 @@ int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* 
 extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2) { 
 
-    //EnterCriticalSection(&critical_section);
+    EnterCriticalSection(&critical_section);
     memcpy(x_t_cached, x_t, sizeof(x_t));
-    //LeaveCriticalSection(&critical_section);
+    LeaveCriticalSection(&critical_section);
 
     /* Perform matrix multiply of x_t and transpose(block_id_embeddings)
      * Since we only care about the index of the largest element in each row of the output
@@ -492,7 +524,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void*
             }
         }
     }
-    return 0;
+
+    return global_timestep;
 }
 
 static int dummy_chunk[14][14][14] = { 6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,1,1,1,9,13,9,9,9,9,9,9,9,9,0,0,0,0,0,9,0,0,0,9,1,1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,1,1,1,9,13,9,9,9,9,9,9,9,9,0,0,0,0,9,9,1,0,11,11,11,11,11,0,0,0,0,0,0,1,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,11,1,1,0,0,0,0,0,0,0,0,0,1,1,11,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,9,9,9,9,9,9,0,9,0,0,9,9,0,9,11,13,13,13,11,11,0,0,0,0,0,1,0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,1,0,0,0,0,0,0,0,1,1,13,13,13,1,1,0,0,0,0,0,0,0,0,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,9,9,9,9,9,9,9,1,0,0,9,13,0,0,11,13,13,13,13,13,0,0,0,0,0,13,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,1,0,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,9,9,9,9,9,9,1,0,0,0,9,9,0,0,11,13,13,13,11,13,0,0,0,0,0,1,0,0,1,0,13,0,1,0,0,0,0,0,0,0,0,0,11,0,0,0,1,0,0,0,0,0,0,0,0,0,11,0,0,0,1,0,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,0,9,0,0,0,9,0,1,11,13,13,13,11,13,0,0,0,0,0,1,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,8,1,13,1,0,0,0,0,0,0,0,0,0,1,0,0,0,1,9,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,9,9,0,0,9,9,9,0,11,11,11,11,11,13,0,0,0,0,0,1,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,0,0,0,0,0,13,0,0,11,13,13,13,13,13,0,0,0,0,0,13,0,0,1,13,1,13,0,0,0,0,0,0,0,0,0,0,1,13,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,1,9,0,0,0,9,0,1,11,13,13,13,11,11,0,0,0,0,0,1,0,0,1,0,0,0,1,1,0,0,0,0,0,0,0,0,11,0,0,0,1,1,0,0,0,0,0,0,0,0,11,0,0,0,1,1,0,0,0,0,0,0,0,1,1,13,1,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,9,0,0,0,13,9,0,0,11,13,13,13,11,1,0,0,0,0,8,1,0,0,1,1,1,0,1,0,0,0,0,0,8,0,0,0,11,0,0,0,1,0,0,0,0,0,8,0,0,0,11,0,0,0,1,13,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,0,9,0,0,9,9,1,0,11,13,13,13,11,9,0,0,0,0,0,1,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,0,0,8,1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,1,1,13,13,13,13,13,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,9,9,1,1,9,13,9,9,6,6,6,6,6,6,0,0,0,0,13,13,0,0,11,11,11,11,11,11,0,0,0,0,8,13,0,0,1,1,1,1,1,1,0,0,0,0,8,0,0,0,1,1,11,1,1,1,0,0,0,0,8,0,0,0,1,1,11,1,1,1,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,1,1,1,9,13,9,9,9,9,9,9,9,9,0,0,0,0,0,9,0,9,0,0,0,0,0,9,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,6,6,6,6,6,6,6,6,6,6,6,1,1,1,1,9,13,9,9,9,9,9,9,9,9,0,0,0,0,13,9,0,0,0,1,13,0,0,1,0,0,0,0,8,1,0,0,0,0,8,0,0,0,0,0,0,0,8,0,0,0,0,0,8,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
@@ -516,10 +549,27 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
 
 extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
-    return 0;
+
+    // Check if the handle is NULL (this means that we didn't call "init" yet)
+    if (denoise_thread_handle == NULL) {
+        return NO_ERROR;
+    }
+
+    // "0" returns immediately without blocking. We use this to check if it's running.
+    int32_t wait_result = WaitForSingleObject(denoise_thread_handle, 0);
+
+    if (wait_result == WAIT_TIMEOUT) {
+        return NO_ERROR;
+    }
+    
+    // If we got here, the denoise_thread has completed and we can read the error code.
+    unsigned long exit_code;
+    GetExitCodeThread(denoise_thread_handle, &exit_code);
+
+    return (int32_t)exit_code;
 }
 
-#if 0
+#if 1
 void main() {
 
     int result = Java_tbarnes_diffusionmod_Inference_init(0, 0);

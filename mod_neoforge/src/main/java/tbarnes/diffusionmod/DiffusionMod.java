@@ -266,23 +266,35 @@ public class DiffusionMod
     static Boolean isDenoising = false;
     static int denoiseCount = 0;
 
+    static Boolean doneOnce = false;
+    static int previousTimestep = 1000;
+
     @SubscribeEvent
     public void diffusionTick(PlayerTickEvent.Post event) {
 
         if (isDenoising) {
 
+            if (!doneOnce) {
+                infer.init();
+                infer.startDiffusion();
+                doneOnce = true;
+            }
+
             if (denoiseCount > 200) {
                 isDenoising = false;
                 denoiseCount = 0;
             } else {
+
+                infer.cacheCurrentTimestepForReading();
+
                 Level level = event.getEntity().level();
 
                 for (int x = 0; x < 14; x++) {
                     for (int y = 0; y < 14; y++) {
                         for (int z = 0; z < 14; z++) {
 
-                            int new_id = DUMMY_IDS[x + 14 * y + (14 * 14) * z];
-                            //int new_id = infer.readBlockFromCachedTimestep(x, y, z);
+                            //int new_id = DUMMY_IDS[x + 14 * y + (14 * 14) * z];
+                            int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
                             BlockPos relative = new BlockPos(
                                     userClickedPos.getX() + x,
@@ -297,7 +309,7 @@ public class DiffusionMod
                 }
 
                 //denoiseCount += 1;
-                denoiseCount = 201;
+                //denoiseCount = 201;
             }
         }
     }
