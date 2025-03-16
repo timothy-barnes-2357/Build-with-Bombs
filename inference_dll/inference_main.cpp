@@ -289,6 +289,10 @@ static unsigned long denoise_thread(void* unused) {
 
     printf("Number of layers in engine: %d\n", engine->getNbLayers());
 
+    /* TODO:
+     * Add the x_all here and compare to trt results 
+     */
+
     normal_epsilon = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_epsilon.bin", instances * size_normal_epsilon);
     normal_z       = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_z.bin", instances * size_normal_z);
     alpha          = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha.bin", size_alpha);
@@ -329,6 +333,15 @@ static unsigned long denoise_thread(void* unused) {
     for (;;) {
         WaitForSingleObject(start_denoise_event, INFINITE);
 
+        /* Fill in the middle 14^3 voxels of the mask*/
+        for         (int x = 1; x < 15; x++) {
+            for     (int y = 1; y < 15; y++) {
+                for (int z = 1; z < 15; z++) {
+                    x_mask[x][y][z] = 1.0f;
+                }
+            }
+        }
+
         /* Copy the "context" and "mask" tensors to the GPU */
         cuda_check(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
         cuda_check(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
@@ -336,8 +349,8 @@ static unsigned long denoise_thread(void* unused) {
         /* Zero-out the context and mask CPU buffers so they're clean
          * for the next diffusion run. We don't need the CPU buffers anymore
          * since context and mask are already on the GPU. */
-        memset(x_context, 0, sizeof(x_context));
-        memset(x_mask, 0, sizeof(x_mask));
+        //memset(x_context, 0, sizeof(x_context));
+        //memset(x_mask, 0, sizeof(x_mask));
 
         /* The x_t buffer needs to start with noise */
         memcpy(x_t, normal_epsilon, size_normal_epsilon);
@@ -585,7 +598,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* un
     return (int32_t)exit_code;
 }
 
-#if 1
+#if 0
 void main() {
 
     int result = Java_tbarnes_diffusionmod_Inference_init(0, 0);
@@ -624,7 +637,7 @@ void main() {
                 }
             }
             
-            printf("step = %d, sum = %f\n", step_after_cache, sum);
+            printf("step = %d, sum = %f\n", step, sum);
             fflush(stdout);
         }
     }
