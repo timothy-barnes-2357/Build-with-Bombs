@@ -79,7 +79,7 @@ public class DiffusionMod
             Blocks.STONE_BRICK_SLAB.defaultBlockState(),
 
             // 4 - minecraft:grass_block
-            Blocks.AIR.defaultBlockState(),//Blocks.GRASS_BLOCK.defaultBlockState(),
+            Blocks.GRASS_BLOCK.defaultBlockState(),
 
             // 5 - minecraft:oak_planks
             Blocks.OAK_PLANKS.defaultBlockState(),
@@ -276,6 +276,7 @@ public class DiffusionMod
 
     @SubscribeEvent
     public void diffusionTick(PlayerTickEvent.Post event) {
+        Level level = event.getEntity().level();
 
         if (isDenoising) {
 
@@ -289,8 +290,55 @@ public class DiffusionMod
                 for (int x = 0; x < 16; x++) {
                     for (int y = 0; y < 16; y++) {
                         for (int z = 0; z < 16; z++) {
-                            int block_id = context_blocks[x + (16 * y) + (16 * 16 * z)];
+
+                            BlockPos position = new BlockPos(
+                                    userClickedPos.getX() + x,
+                                    userClickedPos.getY() + y,
+                                    userClickedPos.getZ() + z);
+
+                            BlockState blockState = level.getBlockState(position);
+                            Block block = blockState.getBlock();
+
+                            int block_id = 0;
+
+                            if (block == Blocks.AIR) {
+                                block_id = 0;
+                            } else if (block == Blocks.DIRT) {
+                                block_id = 1;
+                            } else if (block == Blocks.WHITE_CONCRETE) {
+                                block_id = 2;
+                            } else if (block == Blocks.STONE_BRICK_SLAB) {
+                                block_id = 3;
+                            } else if (block == Blocks.GRASS_BLOCK) {
+                                block_id = 4;
+                            } else if (block == Blocks.OAK_PLANKS) {
+                                block_id = 5;
+                            } else if (block == Blocks.STONE_BRICKS) {
+                                block_id = 6;
+                            }  else if (block == Blocks.STRIPPED_OAK_WOOD) {
+                                block_id = 7;
+                            } else if (block == Blocks.WHITE_WOOL) {
+                                block_id = 9;
+                            } else if (block == Blocks.GREEN_CONCRETE) {
+                                block_id = 10;
+                            } else if (block == Blocks.OAK_SLAB) {
+                                block_id = 15;
+                            }  else if (block == Blocks.SANDSTONE) {
+                                block_id = 16;
+                            } else if (block == Blocks.BRICKS) {
+                                block_id = 17;
+                            } else if (block == Blocks.GRAVEL) {
+                                block_id = 25;
+                            }
+
+                            //int block_id = context_blocks[x + (16 * y) + (16 * 16 * z)];
                             infer.setContextBlock(x, y, z, block_id);
+
+                            //if (y == 0) {
+                            //    infer.setContextBlock(x, y, z, 1);
+                            //} else {
+                            //    infer.setContextBlock(x, y, z, 0);
+                            //}
                         }
                     }
                 }
@@ -304,7 +352,7 @@ public class DiffusionMod
             if (timestep < previousTimestep) {
                 infer.cacheCurrentTimestepForReading();
 
-                Level level = event.getEntity().level();
+
 
                 for (int x = 0; x < 14; x++) {
                     for (int y = 0; y < 14; y++) {
@@ -313,14 +361,14 @@ public class DiffusionMod
                             //int new_id = DUMMY_IDS[x + 14 * y + (14 * 14) * z];
                             int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
-                            BlockPos relative = new BlockPos(
+                            BlockPos position = new BlockPos(
                                     userClickedPos.getX() + x,
                                     userClickedPos.getY() + y,
                                     userClickedPos.getZ() + z);
 
                             BlockState state = BLOCK_STATES[new_id];
 
-                            level.setBlockAndUpdate(relative, state);
+                            level.setBlockAndUpdate(position, state);
                         }
                     }
                 }
