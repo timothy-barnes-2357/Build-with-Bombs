@@ -1,14 +1,14 @@
 #include <random>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <chrono>
 
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
-
-#include <windows.h>
-
-#include <direct.h>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -29,22 +29,23 @@
 
 #define CHUNK_WIDTH 16
 
+static std::mutex mtx;
+static std::condition_variable cv;
+static bool denoise_should_start;
+static std::thread denoise_thread;
 
 /* TODO:
-    x- Replace asserts with actual error codes
-    - Verify output is correct.
-    - Create a denoising thread and move the init code into it.
-    - Replace the noise bin files with cuRAND. Remove load_file().
-    - Replace the denoising schedule bin files with computation in this file.
-    - Replace the TRT loading with ONNX loading
-    - Replace asserts with error reporting I can pass to Java
+ * - Try moving away from prebuilt TRT runtime.
+ * - Make better error reporting and present in Minecraft.
+ * - Use a cross platform threading API.
+ * - Remove dead code and add substantial comments.
  */
 
 using namespace nvinfer1;
 
 static IExecutionContext* context;
 
-CRITICAL_SECTION critical_section;
+//CRITICAL_SECTION critical_section;
 
 static volatile bool init_called = false;
 static volatile bool init_complete = false;
@@ -110,11 +111,11 @@ static float* x_all;
 static float x_context[3][16][16][16];
 static float x_mask[16][16][16];
 
-static float* normal_epsilon;
-static float* normal_z;
-static float* alpha;
-static float* alpha_bar;
-static float* beta;
+//static float* normal_epsilon;
+//static float* normal_z;
+//static float* alpha;
+//static float* alpha_bar;
+//static float* beta;
 
 static void* cuda_t;
 static void* cuda_x_t;
@@ -128,9 +129,6 @@ static void* cuda_alpha_bar_t;
 static void* cuda_beta_t;
 static void* cuda_beta_t_minus_1;
 static void* cuda_post_noise_addition;
-
-static HANDLE denoise_thread_handle;
-static HANDLE start_denoise_event;
 
 static volatile int32_t global_timestep = 0;
 
@@ -193,16 +191,12 @@ static float* load_file(const char* filename, int file_size) {
     return (float*)contents;
 }
 
-static unsigned long denoise_thread(void* unused) {
 
-    char cwd_buffer[1024];
+static float alpha[n_T];
+static float beta[n_T];
+static float alpha_bar[n_T];
 
-    if (_getcwd(cwd_buffer, sizeof(cwd_buffer))) {
-        printf("Current working directory: %s\n", cwd_buffer);
-    } else {
-        perror("Failed to get current working directory");
-        return 1;
-    }
+int denoise_thread_main() {
 
     int cuda_version;
     cudaRuntimeGetVersion(&cuda_version);
@@ -302,18 +296,14 @@ static unsigned long denoise_thread(void* unused) {
     x_initial = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_x_initial.bin", size_x);
     x_all     = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_x_all.bin", instances * size_x);
 
-    normal_epsilon = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_epsilon.bin", instances * size_normal_epsilon);
+    //normal_epsilon = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_epsilon.bin", instances * size_normal_epsilon);
     //normal_z       = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_normal_z.bin", instances * size_normal_z);
-    alpha          = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha.bin", size_alpha);
-    alpha_bar      = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha_bar.bin", size_alpha_bar);
-    beta           = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_beta.bin", size_beta);
+    //alpha          = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha.bin", size_alpha);
+    //alpha_bar      = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_alpha_bar.bin", size_alpha_bar);
+    //beta           = load_file("C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/save_beta.bin", size_beta);
 
     float beta1 = 1e-4f;
     float beta2 = 0.02f;
-
-    float alpha[n_T];
-    float beta[n_T];
-    float alpha_bar[n_T];
 
     { /* Compute the denoising schedule for ever timestep*/
         float start = sqrtf(beta1);
@@ -369,7 +359,17 @@ static unsigned long denoise_thread(void* unused) {
     cuda_check(cudaStreamCreate(&stream));
     
     for (;;) {
-        WaitForSingleObject(start_denoise_event, INFINITE);
+
+        /* Wait until the mutex unlocks */
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+
+            while (!denoise_should_start) {
+                cv.wait(lock);
+            }
+
+            denoise_should_start = false; // Auto reset so it blocks next loop iteration.
+        }
 
         /* Fill in the middle 14^3 voxels of the mask*/
         for         (int x = 1; x < 15; x++) {
@@ -404,7 +404,7 @@ static unsigned long denoise_thread(void* unused) {
         float *arr = &x_t[0][0][0][0];
 
         for (size_t i = 0; i < size_x/sizeof(float); ++i) {
-            arr[i] = dist(gen);
+            //arr[i] = dist(gen);
         }
 
         /* The x_t buffer needs to start with noise */
@@ -423,8 +423,8 @@ static unsigned long denoise_thread(void* unused) {
                 int offset_normal_epsilon = load_index * size_normal_epsilon;
                 int offset_normal_z       = load_index * size_normal_z;
 
-                float* normal_epsilon_t = (float*)((uint8_t *)normal_epsilon + offset_normal_epsilon);
-                float* normal_z_t       = (float*)((uint8_t *)normal_z + offset_normal_z);
+                //float* normal_epsilon_t = (float*)((uint8_t *)normal_epsilon + offset_normal_epsilon);
+                //float* normal_z_t       = (float*)((uint8_t *)normal_z + offset_normal_z);
 
                 //float alpha_t = alpha[t];
                 //float alpha_bar_t = alpha_bar[t];
@@ -456,9 +456,14 @@ static unsigned long denoise_thread(void* unused) {
 
                 cuda_check(cudaStreamSynchronize(stream));
 
-                EnterCriticalSection(&critical_section);
-                cudaError_t result = cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost);
-                LeaveCriticalSection(&critical_section);
+                cudaError_t result;
+                {
+                    std::lock_guard<std::mutex> lock(mtx);
+                    result = cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost);
+                }
+
+                //EnterCriticalSection(&critical_section);
+                //LeaveCriticalSection(&critical_section);
 
                 cuda_check(result);
 
@@ -544,29 +549,36 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
         return INFER_ERROR_INVALID_OPERATION;
     }
 
-    /* Create the event that each run of the denoising thread is triggered by */
-    start_denoise_event = CreateEvent(0, 0, 0, 0);
+    ///* Create the event that each run of the denoising thread is triggered by */
+    //start_denoise_event = CreateEvent(0, 0, 0, 0);
 
-    if (!start_denoise_event) {
-        printf("CreateEvent failed (%d)\n", GetLastError());
-        return INFER_ERROR_FAILED_OPERATION;
-    }
+    //if (!start_denoise_event) {
+    //    printf("CreateEvent failed (%d)\n", GetLastError());
+    //    return INFER_ERROR_FAILED_OPERATION;
+    //}
 
-    /* Create the critical section for making sure that the denoising thread isn't 
-     * overwritting x_t while we're trying to cache it for reading from Java */
-    InitializeCriticalSection(&critical_section);
+    ///* Create the critical section for making sure that the denoising thread isn't 
+    // * overwritting x_t while we're trying to cache it for reading from Java */
+    //InitializeCriticalSection(&critical_section);
 
-    /* Create and launch the denoising thread */
-    DWORD thread_id;
-    HANDLE denoise_thread_handle = CreateThread(0, 0, denoise_thread, 0, 0, &thread_id);
+    ///* Create and launch the denoising thread */
+    //DWORD thread_id;
+    //HANDLE denoise_thread_handle = CreateThread(0, 0, denoise_thread, 0, 0, &thread_id);
 
-    if (!denoise_thread_handle) {
-        printf("CreateThread error: %d\n", GetLastError());
+    //if (!denoise_thread_handle) {
+    //    printf("CreateThread error: %d\n", GetLastError());
+    //    return INFER_ERROR_FAILED_OPERATION;
+    //}
+
+    denoise_thread = std::thread(denoise_thread_main);
+
+    if (!denoise_thread.joinable()) {
+        printf("Thread creation failed\n");
         return INFER_ERROR_FAILED_OPERATION;
     }
 
     init_called = true;
-    return NO_ERROR;
+    return 0;
 }
 
 /** 
@@ -599,7 +611,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
     
     x_mask[x][y][z] = 1.0f;
 
-    return NO_ERROR;
+    return 0;
 }
 
 /** 
@@ -615,9 +627,13 @@ int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* 
     global_timestep = n_T;
     diffusion_running = true;
 
-    SetEvent(start_denoise_event);
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        denoise_should_start = true;
+        cv.notify_one();
+    }
 
-    return NO_ERROR;
+    return 0;
 }
 
 /** 
@@ -638,9 +654,10 @@ int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, vo
 extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2) { 
 
-    EnterCriticalSection(&critical_section);
-    memcpy(x_t_cached, x_t, sizeof(x_t));
-    LeaveCriticalSection(&critical_section);
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        memcpy(x_t_cached, x_t, sizeof(x_t));
+    }
 
     /* Perform matrix multiply of x_t and transpose(block_id_embeddings)
      * Since we only care about the index of the smallest element in each row of the output
@@ -697,22 +714,23 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
 extern "C" __declspec(dllexport)
 int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
 
-    // Check if the handle is NULL (this means that we didn't call "init" yet)
-    if (denoise_thread_handle == NULL) {
-        return NO_ERROR;
-    }
+//    // Check if the handle is NULL (this means that we didn't call "init" yet)
+//    if (denoise_thread_handle == NULL) {
+//        return NO_ERROR;
+//    }
+//
+//    // "0" returns immediately without blocking. We use this to check if it's running.
+//    int32_t wait_result = WaitForSingleObject(denoise_thread_handle, 0);
+//
+//    if (wait_result == WAIT_TIMEOUT) {
+//        return NO_ERROR;
+//    }
+//    
+//    // If we got here, the denoise_thread has completed and we can read the error code.
+//    unsigned long exit_code;
+//    GetExitCodeThread(denoise_thread_handle, &exit_code);
 
-    // "0" returns immediately without blocking. We use this to check if it's running.
-    int32_t wait_result = WaitForSingleObject(denoise_thread_handle, 0);
-
-    if (wait_result == WAIT_TIMEOUT) {
-        return NO_ERROR;
-    }
-    
-    // If we got here, the denoise_thread has completed and we can read the error code.
-    unsigned long exit_code;
-    GetExitCodeThread(denoise_thread_handle, &exit_code);
-
+    int32_t exit_code = 0;
     return (int32_t)exit_code;
 }
 
