@@ -352,8 +352,6 @@ public class DiffusionMod
             if (timestep < previousTimestep) {
                 infer.cacheCurrentTimestepForReading();
 
-
-
                 for (int x = 0; x < 14; x++) {
                     for (int y = 0; y < 14; y++) {
                         for (int z = 0; z < 14; z++) {
@@ -382,7 +380,7 @@ public class DiffusionMod
         }
     }
 
-    public static final DeferredItem<Item> DIRT_EGG = ITEMS.register("dirt_egg", () ->
+    public static final DeferredItem<Item> DIFFUSION_EGG = ITEMS.register("diffusion_egg", () ->
             new Item(new Item.Properties().stacksTo(16)) {
                 @Override
                 public InteractionResult useOn(UseOnContext context) {
@@ -416,7 +414,7 @@ public class DiffusionMod
             .icon(() -> EXAMPLE_ITEM.get().getDefaultInstance())
             .displayItems((parameters, output) -> {
                 output.accept(EXAMPLE_ITEM.get());
-                output.accept(DIRT_EGG.get()); // Add the dirt egg to the tab
+                output.accept(DIFFUSION_EGG.get());
             }).build());
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
