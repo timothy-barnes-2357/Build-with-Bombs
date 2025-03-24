@@ -27,22 +27,6 @@
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
 
-#if defined(_MSC_VER)
-    #define DLL_EXPORT __declspec(dllexport)
-#elif defined(__GNUC__)
-    #define DLL_EXPORT __attribute__((visibility("default")))
-#endif
-
-/* This macro is used to print CUDA errors at a specific line number and return 
- * a failed operation error code */
-#define CUDA_CHECK(expression) { \
-        cudaError_t err = (expression);\
-        if (err != cudaSuccess) { \
-            printf("CUDA error at line %d. (%s)\n", __LINE__, cudaGetErrorString(err)); \
-            return INFER_ERROR_FAILED_OPERATION; \
-        } \
-    }
-
 /*
  * Constants:
  */
@@ -73,8 +57,11 @@ const int size_alpha     = n_T * sizeof(float);
 const int size_alpha_bar = n_T * sizeof(float);
 const int size_beta      = n_T * sizeof(float);
 
-const char *onnx_file_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.onnx";
-const char *engine_cache_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.trt";
+//const char *onnx_file_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.onnx";
+//const char *engine_cache_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.trt";
+
+const char* onnx_file_path = "ddim_single_update.onnx";
+const char* engine_cache_path = "ddim_single_update.trt";
 
 const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
     { 0.0, 0.0, 0.0   }, { -2.0, -1.0, 0.1 }, { 2.0, -1.0, 0.2  }, { 0.0, -1.0, -0.1 }, 
@@ -130,8 +117,23 @@ static int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2];
 
 static float alpha[n_T];
 static float beta[n_T];
-static float alpha_bar[n_T];A
+static float alpha_bar[n_T];
 
+#if defined(_MSC_VER)
+#define DLL_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__)
+#define DLL_EXPORT __attribute__((visibility("default")))
+#endif
+
+/* This macro is used to print CUDA errors at a specific line number and return
+ * a failed operation error code */
+#define CUDA_CHECK(expression) { \
+        cudaError_t err = (expression);\
+        if (err != cudaSuccess) { \
+            printf("CUDA error at line %d. (%s)\n", __LINE__, cudaGetErrorString(err)); \
+            return INFER_ERROR_FAILED_OPERATION; \
+        } \
+    }
 
 /**
  * @brief This is the main thread that's kicked off at the beginning for init.
@@ -480,9 +482,9 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
         return INFER_ERROR_INVALID_OPERATION;
     }
 
-    denoise_thread = std::thread(denoise_thread_wrapper);
+    global_denoise_thread = std::thread(denoise_thread_wrapper);
 
-    if (!denoise_thread.joinable()) {
+    if (!global_denoise_thread.joinable()) {
 
         printf("Thread creation failed\n");
         global_last_error = INFER_ERROR_INVALID_OPERATION;
@@ -626,7 +628,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
 extern "C" DLL_EXPORT
 int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
 
-    return (int32_t)error_return;
+    return (int32_t)global_last_error;
 }
 
 #if 1
