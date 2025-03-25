@@ -5,6 +5,15 @@
  *        run the ONNX model. Instead of including "jni.h" for the Java Native Interface,
  *        this file simply defines functions with the correct prototype so atomic datatypes
  *        in function arguments and returns are usable from Java. 
+ *
+ * This program was built with TensorRT-10.5.0.18 using CUDA 12.7
+ *
+ * This program depends on the following NVIDIA DLLs:
+ * 1. cudart64_12.dll
+ * 2. nvinfer_10.dll
+ * 3. nvinfer_builder_resource_10.dll
+ * 4. nvonnxparser_10.dll
+ * 
  */
 
 #include <random>
@@ -30,6 +39,9 @@
 /*
  * Constants:
  */
+const int VERSION_MAJOR = 0;
+const int VERSION_MINOR = 1;
+
 const int INFER_ERROR_INVALID_ARG             = 1;
 const int INFER_ERROR_FAILED_OPERATION        = 2;
 const int INFER_ERROR_INVALID_OPERATION       = 3;
@@ -44,50 +56,44 @@ const int BLOCK_ID_COUNT = 96;
 const int EMBEDDING_DIMENSIONS = 3;
 const int CHUNK_WIDTH = 16;
 
-const int n_U = 5;    /* Number of inpainting steps per timestep */
-const int n_T = 1000; /* Number of timesteps */
-const int instances = n_U * n_T;
+const int N_U = 5;    /* Number of inpainting steps per timestep */
+const int N_T = 1000; /* Number of timesteps */
 
-const int size_x              = 3 * 16 * 16 * 16 * sizeof(float);
-const int size_x_context      = 3 * 16 * 16 * 16 * sizeof(float);
-const int size_x_mask         = 1 * 16 * 16 * 16 * sizeof(float);
-const int size_normal_epsilon = 3 * 16 * 16 * 16 * sizeof(float);
-const int size_normal_z       = 3 * 16 * 16 * 16 * sizeof(float);
-const int size_alpha     = n_T * sizeof(float);
-const int size_alpha_bar = n_T * sizeof(float);
-const int size_beta      = n_T * sizeof(float);
+const int SIZE_X         = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
+const int SIZE_X_CONTEXT = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
+const int SIZE_X_MASK    = sizeof(float) *                    1 * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 
 //const char *onnx_file_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.onnx";
 //const char *engine_cache_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.trt";
 
-const char* onnx_file_path = "ddim_single_update.onnx";
+const char* onnx_file_path    = "ddim_single_update.onnx";
 const char* engine_cache_path = "ddim_single_update.trt";
 
 const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
-    { 0.0, 0.0, 0.0   }, { -2.0, -1.0, 0.1 }, { 2.0, -1.0, 0.2  }, { 0.0, -1.0, -0.1 }, 
-    { -2.0, 2.0, -1.0 }, { -2.0, -1.0, -0.2}, { 0.0, -1.0, -0.3 }, { -2.0, -1.0, 0.4 }, 
-    { 2.0, 2.0, 2.0   }, { 2.0, -1.0, 0.5  }, { -2.0, 2.0, 0.0  }, { 2.0, 0.0, -0.5  },  
-    { 0.0, -1.0, -0.6 }, { -1.5, 1.0, 0.6  }, { 2.0, 0.0, 0.7   }, { -2.0, -1.0, -0.7}, 
-    { 0.0, -1.0, 0.8  }, { 0.0, -1.0, -0.8 }, { 0.0, -1.0, -0.9 }, { 0.0, -1.0, 0.9  }, 
-    { 0.0, -1.0, -1.0 }, { 0.0, -1.0, 1.0  }, { 0.0, -1.0, 0.0  }, { -2.0, 0.0, 0.1  },  
-    { 2.0, 0.0, -1.1  }, { -2.0, -1.0, -1.2}, { 0.0, -1.0, 1.1  }, { 0.0, -1.0, -1.3 }, 
-    { 0.0, -1.0, 1.2  }, { 0.0, -1.0, -1.4 }, { -2.0, 1.0, -1.5 }, { 0.5, 0.0, 0.5   }, 
-    { 0.5, 1.0, 0.5   }, { 0.5, 0.0, 1.5   }, { 0.5, 1.0, 1.5   }, { 0.0, 0.5, 1.5   }, 
-    { 0.0, 0.5, 0.5   }, { 1.0, 0.5, 1.5   }, { 1.0, 0.5, 0.5   }, { -3.0, 1.0, -2.0 }, 
-    { -2.0, 1.0, 1.7  }, { 1.5, 1.0, -0.5  }, { 1.5, 2.0, -0.5  }, { 1.5, 1.0, -1.5  }, 
-    { 1.5, 2.0, -1.5  }, { 2.0, 1.5, -0.5  }, { 2.0, 1.5, -1.5  }, { 1.0, 1.5, -0.5  },  
-    { 1.0, 1.5, -1.5  }, { 0.0, -2.0, 1.0  }, { 0.0, -1.0, 1.1  }, { 0.0, -1.0, -1.1 }, 
-    { 2.0, 0.0, -1.2  }, { 0.0, -1.0, 1.2  }, { 0.0, -1.0, -1.3 }, { 0.0, -1.0, 1.3  },
-    { 0.0, -1.0, -1.4 }, { 0.0, -1.0, 1.4  }, { 0.0, -1.0, -1.5 }, { 2.0, 0.0, 1.2   }, 
-    { 2.0, 0.0, -1.6  }, { 2.0, 0.0, 1.3   }, { 2.0, 0.0, -1.7  }, { 2.0, 0.0, 1.4   },
-    { 2.0, 0.0, -1.8  }, { 2.0, 0.0, 1.5   }, { 2.0, 0.0, -1.9  }, { 2.0, 0.0, 1.6   }, 
-    { 2.0, 0.0, -2.0  }, { 2.0, 0.0, 1.7   }, { 2.0, 0.0, -2.1  }, { 0.0, -1.0, -2.2 },   
-    { 0.0, -1.0, 1.8  }, { 0.0, -1.0, -2.3 }, { 0.0, -1.0, 1.9  }, { 0.0, -1.0, -2.4 }, 
-    { 0.0, -1.0, 2.0  }, { 0.0, -1.0, -2.5 }, { 0.0, -1.0, 2.1  }, { 0.0, -1.0, -2.6 }, 
-    { 0.0, -1.0, 2.2  }, { 0.0, -1.0, -2.7 }, { 0.0, -1.0, 2.3  }, { 0.0, -1.0, -2.8 },   
-    { 0.0, -1.0, 2.4  }, { 0.0, -1.0, -2.9 }, { 0.0, -1.0, 2.5  }, { 0.0, -1.0, -3.0 },
-    { 0.0, -1.0, 2.6  }, { 0.0, -1.0, -3.1 }, { 0.0, -1.0, 2.7  }, { 0.0, -1.0, -3.2 }, 
-    { 0.0, -1.0, 2.8  }, { 0.0, -1.0, -3.3 }, { 0.0, -1.0, 2.9  }, { 2.0, 0.0, -3.4  },  
+    { 0.0f,  0.0f,  0.0f }, {-2.0f, -1.0f,  0.1f }, { 2.0f, -1.0f,  0.2f }, { 0.0f, -1.0f, -0.1f },
+    {-2.0f,  2.0f, -1.0f }, {-2.0f, -1.0f, -0.2f }, { 0.0f, -1.0f, -0.3f }, {-2.0f, -1.0f,  0.4f },
+    { 2.0f,  2.0f,  2.0f }, { 2.0f, -1.0f,  0.5f }, {-2.0f,  2.0f,  0.0f }, { 2.0f,  0.0f, -0.5f },
+    { 0.0f, -1.0f, -0.6f }, {-1.5f,  1.0f,  0.6f }, { 2.0f,  0.0f,  0.7f }, {-2.0f, -1.0f, -0.7f },
+    { 0.0f, -1.0f,  0.8f }, { 0.0f, -1.0f, -0.8f }, { 0.0f, -1.0f, -0.9f }, { 0.0f, -1.0f,  0.9f },
+    { 0.0f, -1.0f, -1.0f }, { 0.0f, -1.0f,  1.0f }, { 0.0f, -1.0f,  0.0f }, {-2.0f,  0.0f,  0.1f },
+    { 2.0f,  0.0f, -1.1f }, {-2.0f, -1.0f, -1.2f }, { 0.0f, -1.0f,  1.1f }, { 0.0f, -1.0f, -1.3f },
+    { 0.0f, -1.0f,  1.2f }, { 0.0f, -1.0f, -1.4f }, {-2.0f,  1.0f, -1.5f }, { 0.5f,  0.0f,  0.5f },
+    { 0.5f,  1.0f,  0.5f }, { 0.5f,  0.0f,  1.5f }, { 0.5f,  1.0f,  1.5f }, { 0.0f,  0.5f,  1.5f },
+    { 0.0f,  0.5f,  0.5f }, { 1.0f,  0.5f,  1.5f }, { 1.0f,  0.5f,  0.5f }, {-3.0f,  1.0f, -2.0f },
+    {-2.0f,  1.0f,  1.7f }, { 1.5f,  1.0f, -0.5f }, { 1.5f,  2.0f, -0.5f }, { 1.5f,  1.0f, -1.5f },
+    { 1.5f,  2.0f, -1.5f }, { 2.0f,  1.5f, -0.5f }, { 2.0f,  1.5f, -1.5f }, { 1.0f,  1.5f, -0.5f },
+    { 1.0f,  1.5f, -1.5f }, { 0.0f, -2.0f,  1.0f }, { 0.0f, -1.0f,  1.1f }, { 0.0f, -1.0f, -1.1f },
+    { 2.0f,  0.0f, -1.2f }, { 0.0f, -1.0f,  1.2f }, { 0.0f, -1.0f, -1.3f }, { 0.0f, -1.0f,  1.3f },
+    { 0.0f, -1.0f, -1.4f }, { 0.0f, -1.0f,  1.4f }, { 0.0f, -1.0f, -1.5f }, { 2.0f,  0.0f,  1.2f },
+    { 2.0f,  0.0f, -1.6f }, { 2.0f,  0.0f,  1.3f }, { 2.0f,  0.0f, -1.7f }, { 2.0f,  0.0f,  1.4f },
+    { 2.0f,  0.0f, -1.8f }, { 2.0f,  0.0f,  1.5f }, { 2.0f,  0.0f, -1.9f }, { 2.0f,  0.0f,  1.6f },
+    { 2.0f,  0.0f, -2.0f }, { 2.0f,  0.0f,  1.7f }, { 2.0f,  0.0f, -2.1f }, { 0.0f, -1.0f, -2.2f },
+    { 0.0f, -1.0f,  1.8f }, { 0.0f, -1.0f, -2.3f }, { 0.0f, -1.0f,  1.9f }, { 0.0f, -1.0f, -2.4f },
+    { 0.0f, -1.0f,  2.0f }, { 0.0f, -1.0f, -2.5f }, { 0.0f, -1.0f,  2.1f }, { 0.0f, -1.0f, -2.6f },
+    { 0.0f, -1.0f,  2.2f }, { 0.0f, -1.0f, -2.7f }, { 0.0f, -1.0f,  2.3f }, { 0.0f, -1.0f, -2.8f },
+    { 0.0f, -1.0f,  2.4f }, { 0.0f, -1.0f, -2.9f }, { 0.0f, -1.0f,  2.5f }, { 0.0f, -1.0f, -3.0f },
+    { 0.0f, -1.0f,  2.6f }, { 0.0f, -1.0f, -3.1f }, { 0.0f, -1.0f,  2.7f }, { 0.0f, -1.0f, -3.2f },
+    { 0.0f, -1.0f,  2.8f }, { 0.0f, -1.0f, -3.3f }, { 0.0f, -1.0f,  2.9f }, { 2.0f,  0.0f, -3.4f },
 };
 
 
@@ -115,9 +121,9 @@ static float x_mask                          [CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WI
 /* Middle 14^3 blocks without surrounding context */
 static int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
 
-static float alpha[n_T];
-static float beta[n_T];
-static float alpha_bar[n_T];
+static float alpha[N_T];
+static float beta[N_T];
+static float alpha_bar[N_T];
 
 #if defined(_MSC_VER)
 #define DLL_EXPORT __declspec(dllexport)
@@ -288,7 +294,7 @@ int denoise_thread_main() {
      * Compute the denoising schedule for every timestep.
      * This is equivalent to the Python code:
      *
-     *  beta = torch.linspace(beta1**0.5, beta2**0.5, self.n_T) ** 2
+     *  beta = torch.linspace(beta1**0.5, beta2**0.5, N_T) ** 2
      *  alpha = 1 - beta
      *  alpha_bar = torch.cumprod(alpha, dim=0)
      */
@@ -299,9 +305,9 @@ int denoise_thread_main() {
         float start = sqrtf(beta1);
         float end = sqrtf(beta2);
         
-        float step_size = (end - start) / (n_T - 1);
+        float step_size = (end - start) / (N_T - 1);
 
-        for (int i = 0; i < n_T; i++) {
+        for (int i = 0; i < N_T; i++) {
 
             float result = start + step_size*i;
             beta[i] = result * result;
@@ -324,20 +330,13 @@ int denoise_thread_main() {
      *
      * The tensor addresses must match the names on the Pytorch torch.onnx.export().
      */
-    void* cuda_t;
-    void* cuda_x_t;
-    void* cuda_x_out;
-    void* cuda_x_context;
-    void* cuda_x_mask;
-    void* cuda_alpha_t;
-    void* cuda_alpha_bar_t;
-    void* cuda_beta_t;
+    void *cuda_t, *cuda_x_t, *cuda_x_out, *cuda_x_context, *cuda_x_mask, *cuda_alpha_t, *cuda_alpha_bar_t, *cuda_beta_t;
 
     CUDA_CHECK(cudaMalloc(&cuda_t,           sizeof(int32_t)));
-    CUDA_CHECK(cudaMalloc(&cuda_x_t,         size_x)); // Input for each model step
-    CUDA_CHECK(cudaMalloc(&cuda_x_out,       size_x)); // Output produced by the model
-    CUDA_CHECK(cudaMalloc(&cuda_x_context,   size_x_context));
-    CUDA_CHECK(cudaMalloc(&cuda_x_mask,      size_x_mask));
+    CUDA_CHECK(cudaMalloc(&cuda_x_t,         SIZE_X)); // Input for each model step
+    CUDA_CHECK(cudaMalloc(&cuda_x_out,       SIZE_X)); // Output produced by the model
+    CUDA_CHECK(cudaMalloc(&cuda_x_context,   SIZE_X_CONTEXT));
+    CUDA_CHECK(cudaMalloc(&cuda_x_mask,      SIZE_X_MASK));
     CUDA_CHECK(cudaMalloc(&cuda_alpha_t,     sizeof(float)));
     CUDA_CHECK(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
     CUDA_CHECK(cudaMalloc(&cuda_beta_t,      sizeof(float)));
@@ -383,8 +382,8 @@ int denoise_thread_main() {
         }
 
         /* Copy the "context" and "mask" tensors to the GPU */
-        CUDA_CHECK(cudaMemcpy(cuda_x_context, x_context, size_x_context, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(cuda_x_mask, x_mask, size_x_mask, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(cuda_x_context, x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(cuda_x_mask, x_mask, SIZE_X_MASK, cudaMemcpyHostToDevice));
 
         /* Zero-out the context and mask CPU buffers so they're clean
          * for the next diffusion run. We don't need the CPU buffers anymore
@@ -417,14 +416,14 @@ int denoise_thread_main() {
          * primary denoising steps whiel the 'u' steps are used to blend the known and
          * unknown regions during in-painting. 
          */
-        for (int t = n_T - 1; t >= 0; t -= 1) {
-            for (int u = 0; u < n_U; u++) {
+        for (int t = N_T - 1; t >= 0; t -= 1) {
+            for (int u = 0; u < N_U; u++) {
 
-                int load_index = t * n_U + u;
+                int load_index = t * N_U + u;
 
                 /* Copy the relevant input buffers for the TensorRT model */
                 CUDA_CHECK(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(cuda_x_t, x_t, size_x, cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(cuda_x_t, x_t, SIZE_X, cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_alpha_t, &alpha[t], sizeof(float), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar[t], sizeof(float), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_beta_t, &beta[t], sizeof(float), cudaMemcpyHostToDevice));
@@ -444,14 +443,14 @@ int denoise_thread_main() {
 
                 {
                     std::lock_guard<std::mutex> lock(mtx);
-                    result = cudaMemcpy(x_t, cuda_x_out, size_x, cudaMemcpyDeviceToHost);
+                    result = cudaMemcpy(x_t, cuda_x_out, SIZE_X, cudaMemcpyDeviceToHost);
                 }
 
                 CUDA_CHECK(result);
             }
 
             global_timestep = t;
-            /* TODO: I should copy out the x_t only once it's completed all n_U iterations.
+            /* TODO: I should copy out the x_t only once it's completed all N_U Iterations.
              * Otherwise, I'll be copying out a partially in-painted sample */
         }
 
@@ -540,7 +539,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* 
         return INFER_ERROR_INVALID_OPERATION;
     }
 
-    global_timestep = n_T;
+    global_timestep = N_T;
     diffusion_running = true;
 
     {
@@ -625,21 +624,36 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
 }
 
 
+/** 
+ * @brief Retrieve the last error from either the diffusion thread or one of the
+ *        DLL exported API functions.
+ */
 extern "C" DLL_EXPORT
 int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
 
     return (int32_t)global_last_error;
 }
 
+/** 
+ * @brief Retrieve the version integer. 
+ */
+extern "C" DLL_EXPORT
+int32_t Java_tbarnes_diffusionmod_Inference_getVersion(void* unused1, void* unused2) {
+
+    return (int32_t)VERSION_MAJOR << 16 | VERSION_MINOR;
+}
+
 #if 1
+/* Main function to test the interface */
 void main() {
+
+    printf("Start of main");
 
     int result = Java_tbarnes_diffusionmod_Inference_init(0, 0);
     
     result = Java_tbarnes_diffusionmod_Inference_startDiffusion(0, 0);
 
-    printf("End of main");
-
+    
     int32_t last_step = 1000;
 
     while (1) {
