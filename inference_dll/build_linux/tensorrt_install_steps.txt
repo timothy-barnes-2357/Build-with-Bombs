@@ -1,0 +1,15 @@
+3-26-2025
+These are the steps for downloading and using TensorRT from a TAR package. The .deb package didn't work for me because it was missing the ONNX parser.
+
+1. Go to the following page (NVIDIA forces you to make an account in order to download):
+https://developer.nvidia.com/tensorrt/download/10x
+
+2. Download the following .deb package:
+TensorRT 10.5 GA for Linux x86_64 and CUDA 12.0 to 12.6 TAR Package
+
+3. Get the TensorRT folder out of the tar and move it to /usr/local
+sudo mv TensorRT-10.5.0.18 /usr/local/tensorrt-10.5
+
+4. build_linux.sh should now work (assuming CUDA is installed). The /usr/local/tensorrt folder needs to be in the LD_LIBRARY_PATH before running. The .onnx file needs to be in the same directory as the program.
+export LD_LIBRARY_PATH=/usr/local/tensorrt-10.5/lib:$LD_LIBRARY_PATH
+./inference

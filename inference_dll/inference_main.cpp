@@ -6,7 +6,7 @@
  *        this file simply defines functions with the correct prototype so atomic datatypes
  *        in function arguments and returns are usable from Java. 
  *
- * This program was built with TensorRT-10.5.0.18 using CUDA 12.7
+ * This program was built with TensorRT-10.5.0.18 using CUDA 12.6
  *
  * This program depends on the following NVIDIA DLLs:
  * 1. cudart64_12.dll
@@ -16,6 +16,7 @@
  * 
  */
 
+#include <atomic>
 #include <random>
 #include <mutex>
 #include <thread>
@@ -27,6 +28,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <float.h>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -62,9 +64,6 @@ const int N_T = 1000; /* Number of timesteps */
 const int SIZE_X         = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 const int SIZE_X_CONTEXT = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 const int SIZE_X_MASK    = sizeof(float) *                    1 * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
-
-//const char *onnx_file_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.onnx";
-//const char *engine_cache_path = "C:/Users/tbarnes/Desktop/projects/voxelnet/experiments/TestTensorRT/ddim_single_update.trt";
 
 const char* onnx_file_path    = "ddim_single_update.onnx";
 const char* engine_cache_path = "ddim_single_update.trt";
@@ -110,7 +109,7 @@ static std::thread global_denoise_thread;
 static std::atomic<bool> init_called;
 static std::atomic<bool> init_complete;
 static std::atomic<bool> diffusion_running;
-static std::atomic<int32_t> global_timestep = 0;
+static std::atomic<int32_t> global_timestep;
 static std::atomic<int32_t> global_last_error;
 
 static float x_t       [EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
@@ -645,7 +644,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getVersion(void* unused1, void* unus
 
 #if 1
 /* Main function to test the interface */
-void main() {
+int main() {
 
     printf("Start of main");
 
@@ -678,6 +677,8 @@ void main() {
             fflush(stdout);
         }
     }
+    
+    return 0;
 }
 #endif
 
