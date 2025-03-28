@@ -10,7 +10,20 @@ public class Inference {
     public native int readBlockFromCachedTimestep(int x, int y, int z);
 
     static {
-        //System.load("C:/Users/tbarnes/Desktop/projects/voxel-diffusion-minecraft-mod/inference_dll/visual_studio_build/x64/Release/inference.dll");
-        System.load("C:/modfiles/inference.dll");
+        String workingDir = System.getProperty("user.dir");
+        String osName = System.getProperty("os.name").toLowerCase();
+        String libName;
+        String libPath;
+
+        if (osName.contains("win")) {
+            libName = "inference.dll";
+        } else if (osName.contains("linux")) {
+            libName = "libinference.so";
+        } else {
+            throw new UnsupportedOperationException("Unsupported operating system: " + osName);
+        }
+
+        libPath = workingDir + java.io.File.separator + libName;
+        System.load(libPath);
     }
 }

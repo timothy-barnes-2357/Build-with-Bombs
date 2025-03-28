@@ -1,5 +1,8 @@
 package tbarnes.diffusionmod;
 
+import net.minecraft.core.Position;
+import net.minecraft.world.entity.Entity;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -37,9 +40,30 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
+
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.component.DataComponentType;
+import java.util.function.Supplier;
+
+import net.minecraft.sounds.SoundEvents;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.minecraft.world.level.Explosion;
+import net.minecraft.world.level.Level.ExplosionInteraction;
+import net.minecraft.world.entity.item.PrimedTnt;
+import net.neoforged.neoforge.event.tick.LevelTickEvent;
 
 import net.minecraft.world.level.block.state.properties.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.Iterator;
+
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(DiffusionMod.MODID)
@@ -421,6 +445,7 @@ public class DiffusionMod
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
     public DiffusionMod(IEventBus modEventBus, ModContainer modContainer)
     {
+        String file = "Current working directory: " + System.getProperty("user.dir");
         // Register the commonSetup method for modloading
         modEventBus.addListener(this::commonSetup);
 
@@ -472,6 +497,157 @@ public class DiffusionMod
         // Do something when the server starts
         LOGGER.info("HELLO from server starting");
     }
+
+    /// Begin new TNT ///////////////////////////////////////////////////////////
+    ///
+    ///
+    private static final Set<PrimedTnt> magicTnts = new HashSet<>();
+
+    public static void markMagicTnt(PrimedTnt tnt) {
+        magicTnts.add(tnt);
+    }
+
+    public static boolean isMagicTnt(PrimedTnt tnt) {
+        return magicTnts.contains(tnt);
+    }
+
+    public static void clearMagicTnt(PrimedTnt tnt) {
+        magicTnts.remove(tnt);
+    }
+    private static final Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
+    private static final Component EXPLOSION_WOOL_NAME = Component.literal("Explosion Wool").withStyle(style -> style.withColor(0xFF5555));
+    private static final Component MAGIC_TNT_NAME = Component.literal("Magic TNT");
+
+    public static ItemStack createMagicTnt() {
+        ItemStack tnt = new ItemStack(Items.TNT);
+        tnt.set(CUSTOM_NAME_SUPPLIER, MAGIC_TNT_NAME);
+        return tnt;
+    }
+
+    private boolean isMagicTnt(ItemStack stack) {
+        Component customName = stack.get(DataComponents.CUSTOM_NAME);
+        return customName != null && customName.equals(MAGIC_TNT_NAME);
+    }
+
+    @SubscribeEvent
+    public void onEntityTick(LevelTickEvent.Pre event) {
+        Level level = event.getLevel();
+
+        if (level.isClientSide()) return;
+
+        for (PrimedTnt tnt : magicTnts) {
+            if (tnt.getFuse() <= 0) {
+                clearMagicTnt(tnt);
+                tnt.discard();
+
+                if (!isDenoising) {
+                    userClickedPos = new BlockPos(
+                            tnt.getBlockX()-7,
+                            tnt.getBlockY() - 1,
+                            tnt.getBlockZ() - 7);
+                    isDenoising = true;
+                }
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        Player player = event.getEntity();
+        Level level = event.getLevel();
+        BlockPos pos = event.getPos();
+        ItemStack itemStack = event.getItemStack();
+
+        if (level.isClientSide()) return;
+
+        if (level.getBlockState(pos).getBlock() == Blocks.TNT) {
+
+        }
+    }
+
+    @SubscribeEvent
+    public void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+        if (event.getLevel().isClientSide()) return;
+
+        Player player = event.getEntity() instanceof Player ? (Player) event.getEntity() : null;
+        if (player == null) return;
+
+        ItemStack placedStack = player.getMainHandItem();
+        if (event.getPlacedBlock().getBlock() == Blocks.TNT && isMagicTnt(placedStack)) {
+
+            Level level = (Level) event.getLevel();
+            BlockPos pos = event.getPos();
+
+            // Cancel default TNT placement
+            event.setCanceled(true);
+
+            // Place vanilla TNT and prime it
+            level.setBlock(pos, Blocks.TNT.defaultBlockState(), 11);
+            PrimedTnt tnt = new PrimedTnt(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player);
+            tnt.setFuse(80); // 4 seconds
+            level.addFreshEntity(tnt);
+
+            // Mark this TNT as "magic" using a server-side tracking system
+            markMagicTnt(tnt);
+
+        } else if (placedStack.getItem() == Items.WHITE_WOOL && isExplosionWool(placedStack)) {
+            Level level = (Level) event.getLevel();
+            BlockPos pos = event.getPos();
+
+            event.setCanceled(true);
+
+            level.explode(
+                    null,
+                    pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
+                    4.0f,
+                    ExplosionInteraction.BLOCK
+            );
+
+            level.playSound(null, pos, SoundEvents.TNT_PRIMED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
+            //level.playSound(null, pos, SoundEvents.GENERIC_EXPLODE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
+
+            LOGGER.info("Explosion Wool detonated at " + pos + " by " + player.getName().getString());
+        }
+    }
+
+    /// Begin Explosion Wool///////////////////////////////////////////////////////////
+    ///
+
+
+    private boolean isExplosionWool(ItemStack stack) {
+        Component customName = stack.get(DataComponents.CUSTOM_NAME);
+        return customName != null && customName.equals(EXPLOSION_WOOL_NAME);
+    }
+
+
+    public static ItemStack createExplosionWool() {
+        ItemStack wool = new ItemStack(Items.WHITE_WOOL);
+        wool.set(CUSTOM_NAME_SUPPLIER, EXPLOSION_WOOL_NAME);
+        return wool;
+    }
+
+    @SubscribeEvent
+    public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
+        Player player = event.getEntity();
+        if (!player.level().isClientSide()) {  // Server-side only
+            ItemStack wool = createExplosionWool();
+
+            if (!player.getInventory().contains(wool)) {
+                player.getInventory().add(wool);
+                LOGGER.info("Gave " + player.getName().getString() + " an Explosion Wool");
+            }
+
+            ItemStack specialTnt = createMagicTnt();
+
+            if (!player.getInventory().contains(specialTnt)) {
+                player.getInventory().add(specialTnt);
+                LOGGER.info("Gave " + player.getName().getString() + " magic tnt");
+            }
+
+        }
+    }
+
+    /// ///////////////////////////////////////////////////////////
 
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
     @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)

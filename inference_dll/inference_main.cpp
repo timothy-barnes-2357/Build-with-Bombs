@@ -6,7 +6,7 @@
  *        this file simply defines functions with the correct prototype so atomic datatypes
  *        in function arguments and returns are usable from Java. 
  *
- * This program was built with TensorRT-10.5.0.18 using CUDA 12.7
+ * This program was built with TensorRT-10.5.0.18 using CUDA 12.6
  *
  * This program depends on the following NVIDIA DLLs:
  * 1. cudart64_12.dll
@@ -255,7 +255,6 @@ int denoise_thread_main() {
         FILE* engine_out = fopen(engine_cache_path, "wb");
 
         if (!engine_out) {
-            fclose(engine_out);
             printf("Failed to save engine to %s\n", engine_cache_path);
             return INFER_ERROR_ENGINE_SAVE;
         }
@@ -409,7 +408,6 @@ int denoise_thread_main() {
                 }
             }
         }
-
 
         /* 
          * These 'for' loops iterate over the denoising steps. The 't' steps represent the 
@@ -643,7 +641,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getVersion(void* unused1, void* unus
     return (int32_t)VERSION_MAJOR << 16 | VERSION_MINOR;
 }
 
-#if 1
+#if 0
 /* Main function to test the interface */
 void main() {
 
