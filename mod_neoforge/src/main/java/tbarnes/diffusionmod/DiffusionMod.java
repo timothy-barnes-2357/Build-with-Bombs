@@ -511,9 +511,6 @@ public class DiffusionMod
         return magicTnts.contains(tnt);
     }
 
-    public static void clearMagicTnt(PrimedTnt tnt) {
-        magicTnts.remove(tnt);
-    }
     private static final Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
     private static final Component EXPLOSION_WOOL_NAME = Component.literal("Explosion Wool").withStyle(style -> style.withColor(0xFF5555));
     private static final Component MAGIC_TNT_NAME = Component.literal("Magic TNT");
@@ -530,22 +527,31 @@ public class DiffusionMod
     }
 
     @SubscribeEvent
-    public void onEntityTick(LevelTickEvent.Pre event) {
+    public void onEntityTick(LevelTickEvent.Post event) {
         Level level = event.getLevel();
 
         if (level.isClientSide()) return;
 
-        for (PrimedTnt tnt : magicTnts) {
-            if (tnt.getFuse() <= 0) {
-                clearMagicTnt(tnt);
-                tnt.discard();
+        Iterator<PrimedTnt> iterator = magicTnts.iterator();
 
+        while (iterator.hasNext()) {
+            PrimedTnt tnt = iterator.next();
+            BlockPos pos = tnt.getOnPos();
+
+            if (tnt.getFuse() < 80) {
                 if (!isDenoising) {
                     userClickedPos = new BlockPos(
-                            tnt.getBlockX()-7,
+                            tnt.getBlockX() - 7,
                             tnt.getBlockY() - 1,
                             tnt.getBlockZ() - 7);
                     isDenoising = true;
+
+                    level.playSound(null, pos, SoundEvents.DRAGON_FIREBALL_EXPLODE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 0.25f);
+
+                    iterator.remove();
+                    tnt.discard();
+                } else {
+                    tnt.setFuse(90); // Set the fuse longer to queue for another denoising explosion.
                 }
             }
         }
@@ -560,9 +566,7 @@ public class DiffusionMod
 
         if (level.isClientSide()) return;
 
-        if (level.getBlockState(pos).getBlock() == Blocks.TNT) {
-
-        }
+        level.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.SLIME_DEATH, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
     }
 
     @SubscribeEvent
@@ -584,8 +588,11 @@ public class DiffusionMod
             // Place vanilla TNT and prime it
             level.setBlock(pos, Blocks.TNT.defaultBlockState(), 11);
             PrimedTnt tnt = new PrimedTnt(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player);
-            tnt.setFuse(80); // 4 seconds
+            tnt.setFuse(160);
             level.addFreshEntity(tnt);
+
+            level.playSound(null, pos, SoundEvents.TNT_PRIMED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
+
 
             // Mark this TNT as "magic" using a server-side tracking system
             markMagicTnt(tnt);
