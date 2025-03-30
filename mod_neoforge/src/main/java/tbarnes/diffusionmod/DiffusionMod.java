@@ -1,7 +1,5 @@
 package tbarnes.diffusionmod;
 
-import net.minecraft.core.Position;
-import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import org.slf4j.Logger;
@@ -40,30 +38,22 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
-
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.component.DataComponentType;
-import java.util.function.Supplier;
-
 import net.minecraft.sounds.SoundEvents;
 import net.neoforged.neoforge.event.level.BlockEvent;
-import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
-
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.state.properties.*;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import java.util.Iterator;
-
+import java.util.*;
+import java.util.function.Supplier;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(DiffusionMod.MODID)
@@ -99,194 +89,48 @@ public class DiffusionMod
             // 2 - minecraft:white_concrete
             Blocks.WHITE_CONCRETE.defaultBlockState(),
 
-            // 3 - minecraft:stone_brick_slab
-            Blocks.STONE_BRICK_SLAB.defaultBlockState(),
-
-            // 4 - minecraft:grass_block
-            Blocks.GRASS_BLOCK.defaultBlockState(),
-
-            // 5 - minecraft:oak_planks
+            // 3 - minecraft:oak_planks
             Blocks.OAK_PLANKS.defaultBlockState(),
 
-            // 6 - minecraft:stone_bricks
+            // 4 - minecraft:stone_bricks
             Blocks.STONE_BRICKS.defaultBlockState(),
 
-            // 7 - minecraft:stripped_oak_wood
-            Blocks.STRIPPED_OAK_WOOD.defaultBlockState(),
+            // 5 - minecraft:grass_block
+            Blocks.GRASS_BLOCK.defaultBlockState(),
 
-            // 8 - minecraft:end_stone_bricks
-            Blocks.END_STONE_BRICKS.defaultBlockState(),
+            // 6 - minecraft:stone_brick_slab[type=bottom]
+            Blocks.STONE_BRICK_SLAB.defaultBlockState()
+                    .setValue(BlockStateProperties.SLAB_TYPE, SlabType.BOTTOM),
 
-            // 9 - minecraft:white_wool
-            Blocks.WHITE_WOOL.defaultBlockState(),
+            // 7 - minecraft:stone_brick_slab[type=top]
+            Blocks.STONE_BRICK_SLAB.defaultBlockState()
+                    .setValue(BlockStateProperties.SLAB_TYPE, SlabType.TOP),
 
-            // 10 - minecraft:green_concrete
-            Blocks.GREEN_CONCRETE.defaultBlockState(),
-
-            // 11 - minecraft:glass_pane[east=true,north=false,south=false,west=true]
-            Blocks.AIR.defaultBlockState(),
-
-            // 12 - minecraft:smooth_stone
-            Blocks.SMOOTH_STONE.defaultBlockState(),
-
-            // 13 - minecraft:brown_shulker_box
-            Blocks.BROWN_SHULKER_BOX.defaultBlockState(),
-
-            // 14 - minecraft:glass_pane[east=false,north=true,south=true,west=false]
-            Blocks.AIR.defaultBlockState(),
-
-            // 15 - minecraft:oak_slab
-            Blocks.OAK_SLAB.defaultBlockState(),
-
-            // 16 - minecraft:sandstone
-            Blocks.SANDSTONE.defaultBlockState(),
-
-            // 17 - minecraft:bricks
-            Blocks.BRICKS.defaultBlockState(),
-
-            // 18 - minecraft:stone_brick_stairs[facing=north,half=bottom,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
-
-            // 19 - minecraft:stone_brick_stairs[facing=south,half=bottom,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
-
-            // 20 - minecraft:stone_brick_stairs[facing=east,half=bottom,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
-
-            // 21 - minecraft:stone_brick_stairs[facing=west,half=bottom,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.BOTTOM)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
-
-            // 22 - minecraft:stone_brick
-            Blocks.STONE_BRICKS.defaultBlockState(),
-
-            // 23 - minecraft:bookshelf
-            Blocks.BOOKSHELF.defaultBlockState(),
-
-            // 24 - minecraft:glass
+            // 8 - minecraft:glass
             Blocks.GLASS.defaultBlockState(),
 
-            // 25 - minecraft:gravel
+            // 9 - minecraft:stone_brick_slab[type=double]
+            Blocks.STONE_BRICK_SLAB.defaultBlockState()
+                    .setValue(BlockStateProperties.SLAB_TYPE, SlabType.DOUBLE),
+
+            // 10 - minecraft:bookshelf
+            Blocks.BOOKSHELF.defaultBlockState(),
+
+            // 11 - minecraft:gravel
             Blocks.GRAVEL.defaultBlockState(),
 
-            // 26 - minecraft:stone_brick_stairs[facing=south,half=top,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.TOP)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+            // 12 - minecraft:green_concrete
+            Blocks.GREEN_CONCRETE.defaultBlockState(),
 
-            // 27 - minecraft:stone_brick_stairs[facing=north,half=top,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.TOP)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+            // 13 - minecraft:oak_slab
+            Blocks.OAK_SLAB.defaultBlockState(),
 
-            // 28 - minecraft:stone_brick_stairs[facing=west,half=top,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.TOP)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
+            // 14 - minecraft:sandstone
+            Blocks.SANDSTONE.defaultBlockState(),
 
-            // 29 - minecraft:stone_brick_stairs[facing=east,half=top,shape=straight]
-            Blocks.STONE_BRICK_STAIRS.defaultBlockState()
-                    .setValue(BlockStateProperties.HALF, Half.TOP)
-                    .setValue(BlockStateProperties.STAIRS_SHAPE, StairsShape.STRAIGHT),
-
-            // 30 - minecraft:dropper
-            Blocks.DROPPER.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
-            Blocks.AIR.defaultBlockState(),
+            // 15 - minecraft:stone_brick (should be stone_bricks)
+            Blocks.STONE_BRICKS.defaultBlockState()
     };
-
-    public static final int[] DUMMY_IDS = new int[] {
-           // 1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,10,4,4,4,2,2,2,2,2,4,6,6,6,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,2,2,2,2,2,4,6,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,6,6,6,2,0,0,0,6,6,6,20,20,6,6,0,0,0,2,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2,29,29,29,0,0,0,0,3,3,3,3,3,3,2,2,2,2,0,0,0,0,0,0,0,0,0,0,3,3,2,3,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,7,7,7,7,7,6,30,30,30,0,0,0,0,0,0,0,0,0,0,2,30,30,30,0,0,0,0,0,0,0,0,0,0,2,30,30,30,0,0,0,0,0,0,0,0,0,0,2,21,21,21,0,0,0,3,3,3,3,3,3,3,2,2,2,2,0,0,0,0,3,3,3,0,0,0,3,3,8,3,0,0,0,0,0,0,3,3,3,0,3,3,3,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,10,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,6,6,7,7,6,6,0,0,0,0,0,0,0,2,74,2,36,36,2,2,0,0,0,0,0,0,0,2,14,2,35,35,2,2,0,0,0,0,0,0,0,2,14,2,29,29,2,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,2,2,2,2,2,8,8,8,0,0,0,0,0,0,3,8,2,2,2,8,3,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,10,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,5,5,5,5,5,6,0,0,0,0,0,0,0,2,18,11,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0,0,0,2,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,8,3,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,6,6,6,2,0,0,0,6,5,5,5,5,5,6,0,0,0,2,0,0,0,19,0,11,19,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,3,3,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,6,6,6,0,0,0,0,6,5,5,5,5,5,6,0,20,0,0,0,0,0,19,18,66,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,0,11,0,0,0,0,0,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,8,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,6,6,7,6,0,0,0,0,2,0,0,0,0,0,2,2,36,2,0,0,0,0,2,0,0,0,0,0,2,2,35,2,0,0,0,0,2,0,0,0,0,0,2,2,2,2,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,0,0,0,6,0,0,0,0,2,0,0,0,53,0,2,0,0,2,0,0,0,0,2,0,0,0,0,0,2,0,0,2,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,3,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,4,4,4,1,1,1,1,1,1,1,1,1,1,2,0,0,0,6,5,5,5,5,5,0,0,0,6,2,0,0,0,2,0,0,0,19,0,38,0,0,2,0,0,0,0,2,0,0,0,0,0,37,0,0,2,0,0,0,0,2,0,0,0,0,0,0,0,0,2,0,0,0,3,2,2,0,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,0,0,0,6,0,0,0,0,2,0,0,0,19,0,0,0,0,18,0,0,0,0,2,0,0,0,0,0,0,0,0,11,0,0,0,0,2,0,0,0,0,0,0,0,39,11,0,0,0,3,2,2,0,2,2,2,2,2,2,2,0,0,0,0,3,8,8,8,8,8,8,8,8,3,0,0,0,0,0,0,3,8,8,8,8,3,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 8, 11, 2, 11, 8, 2, 2, 2, 2, 11, 2, 8, 2, 8, 2, 2, 11, 8, 12, 8, 2, 2, 2, 11, 2, 11, 8, 9, 2, 9, 11, 8, 9, 9, 8, 8, 11, 8, 2, 2, 2, 11, 2, 2, 2, 9, 9, 9, 9, 9, 8, 9, 8, 11, 11, 2, 2, 11, 8, 9, 11, 10, 12, 8, 11, 8, 11, 11, 8, 2, 8, 12, 8, 9, 8, 10, 8, 9, 8, 8, 11, 8, 9, 8, 2, 9, 8, 9, 9, 9, 8, 9, 8, 2, 8, 8, 9, 8, 8, 9, 11, 9, 9, 2, 12, 12, 12, 8, 12, 8, 9, 12, 8, 9, 11, 9, 8, 8, 8, 9, 8, 2, 8, 8, 9, 8, 2, 8, 8, 9, 8, 8, 8, 9, 8, 8, 8, 8, 9, 8, 9, 2, 12, 9, 8, 11, 8, 12, 8, 9, 2, 8, 8, 11, 8, 11, 8, 8, 12, 8, 12, 8, 12, 8, 8, 12, 12, 8, 2, 2, 2, 11, 11, 11, 9, 11, 8, 11, 11, 8, 2, 2, 2, 11, 12, 12, 12, 12, 12, 12, 12, 8, 9, 11, 11, 11, 11, 8, 11, 8, 7, 9, 2, 8, 8, 2, 8, 8, 11, 8, 11, 2, 11, 2, 9, 11, 11, 9, 2, 11, 11, 2, 8, 11, 8, 11, 2, 8, 9, 9, 8, 9, 9, 8, 9, 2, 2, 11, 2, 2, 9, 9, 9, 9, 9, 9, 8, 9, 9, 8, 8, 2, 11, 2, 11, 9, 9, 8, 10, 9, 9, 9, 9, 8, 9, 9, 11, 12, 11, 9, 8, 11, 9, 9, 11, 9, 2, 8, 9, 8, 2, 9, 8, 9, 8, 8, 8, 9, 11, 11, 11, 8, 9, 8, 11, 9, 11, 2, 2, 12, 12, 12, 12, 12, 12, 5, 7, 9, 8, 9, 11, 9, 8, 9, 8, 9, 8, 9, 9, 8, 9, 8, 11, 9, 8, 9, 11, 2, 8, 9, 8, 2, 8, 8, 8, 8, 8, 11, 12, 9, 8, 2, 12, 12, 8, 8, 12, 8, 8, 11, 11, 11, 12, 8, 12, 8, 12, 8, 12, 12, 8, 9, 2, 8, 2, 2, 2, 11, 11, 11, 8, 11, 2, 2, 11, 11, 9, 2, 2, 11, 12, 12, 12, 12, 12, 12, 12, 8, 8, 8, 2, 8, 9, 11, 2, 8, 8, 8, 8, 9, 8, 8, 12, 5, 8, 12, 8, 11, 11, 8, 8, 11, 11, 9, 8, 8, 8, 8, 11, 8, 12, 8, 11, 8, 2, 8, 8, 9, 8, 11, 8, 8, 8, 8, 8, 11, 8, 9, 9, 9, 9, 9, 8, 9, 9, 8, 12, 8, 11, 11, 11, 2, 10, 8, 9, 9, 9, 11, 8, 12, 8, 11, 11, 12, 9, 9, 8, 11, 8, 9, 11, 11, 8, 8, 9, 11, 11, 9, 11, 9, 11, 8, 8, 9, 11, 8, 8, 8, 9, 11, 2, 9, 11, 2, 12, 12, 5, 2, 12, 12, 12, 12, 7, 9, 9, 9, 2, 9, 8, 8, 8, 9, 9, 8, 8, 8, 8, 8, 8, 8, 11, 9, 8, 2, 2, 9, 9, 9, 12, 8, 9, 9, 9, 8, 8, 9, 12, 8, 8, 12, 9, 9, 12, 8, 8, 8, 8, 2, 12, 8, 2, 2, 2, 8, 8, 8, 8, 9, 8, 2, 9, 2, 2, 11, 11, 11, 11, 11, 11, 11, 11, 8, 12, 11, 2, 11, 12, 12, 12, 12, 12, 12, 12, 12, 9, 9, 9, 9, 8, 2, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 11, 2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 2, 9, 12, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 11, 9, 8, 8, 9, 9, 9, 8, 9, 9, 9, 9, 8, 12, 8, 9, 11, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 9, 8, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 8, 10, 9, 5, 2, 12, 2, 12, 8, 5, 8, 12, 8, 9, 9, 8, 9, 8, 9, 11, 8, 8, 9, 9, 8, 11, 2, 11, 2, 2, 8, 11, 9, 11, 2, 2, 8, 9, 8, 8, 8, 8, 8, 8, 2, 8, 9, 8, 9, 11, 12, 9, 2, 12, 2, 12, 8, 2, 11, 12, 8, 2, 8, 9, 8, 12, 12, 8, 9, 8, 2, 2, 2, 2, 11, 11, 11, 11, 11, 8, 11, 11, 8, 5, 11, 2, 11, 12, 12, 12, 12, 12, 12, 12, 2, 9, 9, 9, 9, 2, 9, 8, 8, 8, 9, 8, 8, 8, 9, 8, 8, 8, 9, 11, 2, 11, 8, 11, 9, 8, 8, 11, 8, 8, 8, 8, 9, 8, 2, 9, 8, 8, 9, 8, 8, 8, 8, 9, 8, 8, 9, 8, 2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 11, 9, 8, 9, 11, 8, 8, 9, 8, 2, 8, 8, 12, 9, 8, 12, 11, 9, 8, 2, 8, 9, 10, 11, 8, 8, 9, 9, 9, 9, 8, 9, 8, 8, 12, 9, 10, 8, 8, 8, 9, 9, 2, 9, 12, 9, 7, 7, 12, 12, 5, 12, 12, 8, 9, 9, 8, 8, 8, 9, 10, 8, 8, 8, 9, 8, 8, 2, 8, 8, 11, 2, 11, 9, 8, 2, 2, 8, 9, 11, 2, 2, 2, 11, 2, 2, 8, 9, 11, 11, 8, 12, 9, 8, 2, 8, 11, 11, 11, 11, 12, 8, 2, 2, 2, 11, 8, 12, 8, 9, 8, 2, 2, 2, 11, 11, 11, 11, 11, 11, 11, 11, 2, 8, 5, 11, 2, 11, 12, 12, 12, 12, 12, 12, 12, 12, 8, 9, 9, 9, 2, 9, 9, 9, 9, 8, 9, 9, 8, 8, 8, 11, 2, 9, 11, 2, 2, 2, 2, 8, 9, 2, 8, 12, 9, 8, 11, 9, 8, 11, 9, 9, 8, 9, 8, 9, 9, 8, 9, 8, 8, 9, 11, 2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 11, 2, 11, 8, 2, 11, 11, 8, 11, 11, 8, 11, 8, 9, 8, 11, 2, 8, 2, 2, 8, 8, 11, 9, 11, 11, 8, 9, 9, 8, 8, 9, 8, 11, 9, 9, 9, 9, 8, 8, 9, 9, 7, 9, 12, 9, 12, 8, 8, 8, 12, 8, 8, 8, 9, 9, 8, 8, 8, 9, 10, 12, 8, 10, 9, 8, 2, 2, 11, 2, 11, 11, 11, 9, 11, 8, 2, 8, 9, 11, 2, 2, 11, 8, 2, 2, 8, 9, 11, 11, 11, 8, 9, 11, 11, 8, 11, 8, 11, 8, 12, 12, 12, 8, 9, 11, 12, 12, 8, 9, 8, 2, 2, 9, 2, 11, 11, 11, 11, 11, 11, 2, 4, 8, 5, 11, 2, 11, 12, 12, 12, 12, 5, 12, 12, 2, 8, 9, 9, 9, 9, 9, 8, 8, 8, 9, 10, 11, 8, 11, 9, 8, 8, 9, 8, 8, 8, 11, 11, 11, 8, 11, 8, 10, 9, 8, 11, 9, 12, 8, 8, 8, 8, 8, 11, 8, 11, 10, 9, 8, 8, 9, 8, 2, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 2, 8, 11, 11, 11, 11, 9, 11, 11, 12, 8, 9, 9, 8, 9, 8, 8, 11, 8, 11, 9, 11, 9, 11, 2, 11, 9, 9, 11, 8, 9, 8, 8, 8, 9, 9, 9, 8, 8, 9, 9, 9, 9, 2, 9, 2, 5, 8, 5, 2, 8, 2, 8, 12, 9, 8, 2, 2, 9, 8, 8, 8, 5, 9, 8, 11, 11, 2, 8, 11, 11, 2, 9, 8, 11, 11, 8, 9, 9, 11, 11, 11, 11, 2, 8, 8, 9, 8, 8, 11, 8, 9, 11, 2, 8, 2, 9, 8, 12, 12, 8, 11, 11, 11, 11, 12, 12, 8, 9, 8, 2, 2, 9, 2, 11, 11, 11, 11, 11, 11, 8, 12, 12, 12, 8, 2, 11, 2, 12, 12, 12, 12, 2, 2, 9, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 9, 9, 9, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 11, 8, 9, 12, 8, 9, 9, 9, 9, 9, 9, 9, 9, 8, 9, 11, 8, 12, 8, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 8, 8, 9, 8, 9, 8, 5, 9, 9, 9, 9, 9, 12, 8, 2, 8, 9, 9, 9, 8, 8, 9, 9, 9, 9, 9, 9, 8, 11, 8, 11, 11, 8, 11, 9, 9, 9, 9, 9, 9, 9, 8, 9, 2, 9, 8, 12, 8, 8, 9, 9, 9, 9, 9, 9, 8, 2, 8, 2, 9, 8, 12, 12, 8, 12, 8, 8, 12, 12, 12, 8, 9, 8, 2, 2, 9, 2, 11, 11, 11, 11, 11, 11, 8, 12, 12, 12, 11, 2, 11, 12, 12, 12, 12, 11, 11, 9, 2, 11, 9, 2, 9, 9, 9, 8, 8, 8, 8, 12, 9, 8, 8, 8, 9, 8, 8, 8, 9, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 8, 8, 9, 8, 8, 10, 8, 8, 8, 11, 8, 9, 9, 8, 8, 8, 9, 8, 9, 9, 9, 9, 8, 8, 9, 12, 12, 8, 8, 8, 9, 8, 12, 8, 10, 8, 9, 2, 2, 11, 7, 9, 11, 8, 9, 8, 8, 8, 8, 9, 9, 2, 8, 11, 8, 9, 2, 8, 9, 8, 9, 8, 8, 8, 8, 8, 9, 8, 8, 9, 8, 9, 2, 12, 9, 2, 8, 2, 8, 12, 8, 2, 8, 12, 9, 8, 2, 11, 9, 8, 8, 8, 9, 9, 8, 11, 8, 2, 11, 2, 11, 11, 9, 8, 8, 11, 8, 8, 11, 8, 8, 11, 8, 8, 11, 11, 9, 8, 8, 8, 2, 9, 8, 8, 9, 8, 8, 12, 12, 2, 2, 2, 11, 2, 8, 12, 9, 9, 9, 12, 11, 2, 2, 11, 11, 11, 11, 11, 11, 8, 4, 12, 12, 2, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 5, 8, 9, 2, 9, 11, 9, 8, 9, 9, 8, 8, 8, 8, 11, 9, 9, 8, 8, 10, 9, 11, 9, 9, 8, 13, 8, 8, 8, 11, 9, 8, 11, 8, 9, 11, 2, 2, 8, 9, 8, 11, 8, 9, 9, 8, 12, 12, 9, 11, 8, 8, 8, 9, 8, 8, 9, 8, 9, 8, 8, 8, 2, 11, 8, 8, 9, 9, 8, 11, 11, 11, 7, 8, 2, 9, 9, 11, 8, 9, 9, 8, 8, 8, 8, 8, 12, 11, 2, 8, 9, 8, 8, 8, 8, 8, 11, 8, 9, 11, 9, 9, 9, 9, 8, 12, 9, 12, 12, 9, 8, 8, 8, 11, 11, 8, 8, 8, 2, 2, 8, 11, 8, 8, 2, 8, 8, 11, 11, 9, 8, 8, 11, 11, 8, 11, 11, 11, 8, 8, 8, 9, 9, 9, 9, 9, 8, 8, 9, 12, 2, 12, 12, 8, 8, 9, 9, 9, 9, 12, 12, 11, 9, 11, 8, 8, 8, 12, 8, 9, 9, 8, 2, 8, 8, 11, 11, 11, 11, 11, 11, 11, 4, 12, 12, 5, 11, 11, 11, 12, 12, 12, 12, 11, 12, 12, 12, 2, 8, 9, 8, 9, 8, 8, 9, 8, 8, 12, 9, 9, 9, 9, 9, 9, 2, 11, 9, 2, 9, 8, 8, 8, 9, 9, 9, 9, 9, 9, 8, 11, 9, 11, 8, 9, 8, 9, 9, 9, 9, 9, 9, 8, 12, 8, 9, 11, 9, 11, 12, 7, 9, 9, 9, 9, 9, 8, 8, 2, 12, 11, 9, 8, 7, 9, 9, 9, 9, 12, 12, 8, 9, 8, 9, 8, 9, 8, 9, 9, 9, 9, 9, 9, 2, 9, 8, 12, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 9, 8, 4, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 12, 9, 11, 8, 9, 9, 8, 9, 9, 9, 9, 9, 2, 8, 11, 7, 7, 11, 9, 8, 12, 8, 9, 9, 9, 9, 9, 8, 9, 9, 8, 8, 9, 12, 2, 12, 12, 9, 9, 9, 2, 8, 12, 12, 12, 12, 12, 12, 8, 9, 8, 12, 9, 9, 9, 2, 8, 8, 8, 2, 11, 8, 11, 11, 11, 11, 4, 12, 12, 11, 2, 11, 11, 12, 12, 12, 12, 2, 2, 2, 2, 2, 9, 9, 9, 2, 9, 8, 8, 8, 8, 12, 8, 8, 8, 8, 8, 2, 9, 9, 9, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 9, 8, 2, 9, 8, 8, 11, 8, 8, 8, 8, 9, 8, 8, 12, 12, 8, 9, 8, 8, 8, 12, 12, 2, 8, 8, 2, 2, 11, 8, 11, 8, 9, 9, 2, 8, 8, 8, 8, 11, 11, 8, 8, 8, 8, 9, 11, 9, 8, 8, 8, 8, 8, 8, 8, 9, 11, 9, 8, 9, 8, 9, 8, 8, 8, 8, 8, 8, 9, 8, 8, 8, 8, 12, 5, 9, 8, 8, 8, 8, 8, 8, 8, 11, 2, 11, 8, 8, 12, 9, 8, 2, 8, 8, 8, 8, 8, 8, 11, 9, 8, 8, 8, 9, 8, 8, 2, 8, 8, 8, 8, 11, 8, 8, 9, 2, 11, 9, 8, 8, 11, 8, 8, 8, 8, 8, 2, 12, 12, 8, 11, 8, 11, 2, 2, 11, 12, 8, 9, 9, 9, 8, 8, 11, 2, 11, 11, 11, 11, 11, 11, 2, 12, 12, 11, 11, 11, 11, 2, 12, 8, 12, 11, 9, 9, 8, 8, 8, 9, 8, 9, 8, 9, 9, 9, 9, 9, 8, 2, 2, 2, 9, 8, 11, 9, 9, 9, 9, 9, 9, 9, 8, 8, 8, 9, 9, 9, 8, 9, 9, 9, 9, 9, 9, 9, 9, 8, 8, 11, 2, 8, 8, 2, 9, 12, 12, 12, 12, 12, 2, 8, 8, 2, 8, 11, 9, 2, 9, 8, 8, 9, 8, 8, 8, 2, 8, 8, 8, 11, 11, 9, 9, 2, 8, 2, 2, 8, 2, 8, 8, 8, 8, 9, 9, 9, 9, 8, 9, 8, 8, 8, 11, 8, 8, 11, 11, 8, 2, 8, 2, 5, 9, 8, 2, 9, 9, 8, 8, 8, 11, 9, 9, 9, 8, 12, 9, 8, 9, 8, 11, 8, 11, 8, 11, 11, 8, 8, 8, 8, 9, 8, 8, 2, 8, 9, 11, 11, 2, 8, 8, 7, 8, 2, 8, 11, 2, 2, 9, 9, 9, 8, 8, 12, 12, 2, 8, 2, 9, 11, 11, 2, 2, 2, 8, 8, 8, 8, 8, 9,
-    };
-
-    public static final int[] context_blocks = new int[] {
-            1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,2,2,5,2,2,5,2,2,5,2,2,5,2,2,5,5,2,2,5,2,2,5,2,2,5,2,2,5,2,2,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,2,6,6,6,6,6,6,6,6,6,6,6,0,0,0,0,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,2,2,2,14,14,2,2,2,14,14,2,2,0,0,0,0,2,2,2,14,14,2,2,2,14,14,2,2,0,0,0,3,2,2,2,29,29,2,2,2,29,29,2,2,0,0,0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,2,0,31,0,0,2,0,0,0,0,57,21,0,0,0,0,2,0,33,0,0,0,0,0,0,0,57,21,0,0,0,0,2,0,0,0,0,0,0,0,0,0,57,21,0,0,0,3,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,2,2,0,0,0,2,19,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,26,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,2,49,0,0,0,2,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,2,2,0,0,0,2,0,0,0,0,57,21,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,26,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,6,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,2,30,0,0,0,2,19,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,18,0,0,0,0,0,0,0,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,2,6,6,2,5,5,5,5,5,2,5,5,0,0,0,0,2,2,2,2,0,2,0,0,0,2,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,2,0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,2,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,2,2,2,0,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,3,3,3,6,5,5,5,5,5,6,5,5,0,0,0,0,39,0,0,2,0,0,0,0,0,2,26,23,0,0,0,0,0,0,0,2,0,0,0,0,0,2,9,9,0,0,0,0,0,0,0,2,0,0,0,0,0,2,9,9,0,0,0,3,3,3,3,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,3,3,3,6,5,5,5,5,5,6,6,6,0,0,0,0,39,0,0,32,0,0,0,0,0,2,2,2,0,0,0,0,0,0,0,34,0,0,0,0,0,2,2,2,0,0,0,0,0,0,0,26,0,0,0,0,0,2,2,2,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,4,1,1,1,1,1,1,1,1,1,1,0,0,0,0,3,3,3,6,5,5,5,5,5,5,5,5,0,0,0,0,39,0,0,2,0,0,0,0,0,0,15,15,0,0,0,0,0,0,0,2,0,0,0,0,0,0,15,15,0,0,0,0,0,0,0,2,0,0,0,0,0,0,15,15,0,0,0,0,0,0,3,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,4,4,1,1,1,1,1,1,1,1,1,0,0,0,0,2,3,3,6,5,5,5,5,5,5,5,5,0,0,0,0,2,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,26,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,25,25,25,25,25,4,4,1,1,1,1,1,1,1,1,1,0,0,0,0,3,3,3,6,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,26,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,25,25,25,25,1,1,4,1,1,1,1,1,1,1,1,1,0,0,0,0,3,3,3,6,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,2,0,56,20,58,0,0,0,0,0,0,0,0,0,0,0,2,0,56,20,58,0,0,0,0,0,0,0,0,0,0,0,2,0,56,20,58,0,0,0,0,0,0,3,3,3,3,3,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,2,6,6,6,6,5,6,6,6,5,6,6,5,0,0,0,2,2,2,2,2,36,2,2,2,36,2,2,0,0,0,0,2,2,2,2,2,35,2,2,2,35,2,2,0,0,0,0,2,2,2,2,2,29,2,2,2,29,2,2,0,0,0,3,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    };
-
 
     Inference infer = new Inference();
 
@@ -294,19 +138,109 @@ public class DiffusionMod
     static Boolean isDenoising = false;
     static int denoiseCount = 0;
 
-    static Boolean doneInit = false;
+    static Boolean startedInit = false;
+    static Boolean completedInit = false;
     static Boolean startedDiffusion = false;
     static int previousTimestep = 1000;
+
+    public static final HashMap<String, Integer> BLOCK_MAPPING = new HashMap<>();
+
+    static {
+        BLOCK_MAPPING.put("air", 0);                     // air -> air
+        BLOCK_MAPPING.put("dirt", 1);                    // dirt -> dirt
+        BLOCK_MAPPING.put("grass block", 5);             // grass_block -> grass_block
+        BLOCK_MAPPING.put("cobblestone slab", 6);        // cobblestone_slab -> stone_brick_slab (bottom default)
+        BLOCK_MAPPING.put("stone brick slab", 6);        // stone_brick_slab -> stone_brick_slab (bottom default)
+        BLOCK_MAPPING.put("end stone brick slab", 6);    // end_stone_brick_slab -> stone_brick_slab (bottom default)
+        BLOCK_MAPPING.put("spruce planks", 3);           // spruce_planks -> oak_planks
+        BLOCK_MAPPING.put("oak planks", 3);              // oak_planks -> oak_planks
+        BLOCK_MAPPING.put("chiseled quartz block", 2);   // chiseled_quartz_block -> white_concrete
+        BLOCK_MAPPING.put("stone", 4);                   // stone -> stone_bricks
+        BLOCK_MAPPING.put("end stone bricks", 4);        // end_stone_bricks -> stone_bricks
+        BLOCK_MAPPING.put("cobblestone", 4);             // cobblestone -> stone_bricks
+        BLOCK_MAPPING.put("green wool", 5);              // green_wool -> grass_block
+        BLOCK_MAPPING.put("white concrete", 2);          // white_concrete -> white_concrete
+        BLOCK_MAPPING.put("white terracotta", 2);        // white_terracotta -> white_concrete
+        BLOCK_MAPPING.put("stripped oak wood", 3);       // stripped_oak_wood -> oak_planks
+        BLOCK_MAPPING.put("polished blackstone", 2);     // polished_blackstone -> white_concrete
+        BLOCK_MAPPING.put("red sandstone", 2);           // red_sandstone -> white_concrete
+        BLOCK_MAPPING.put("granite", 11);                // granite -> gravel
+        BLOCK_MAPPING.put("oak leaves", 0);              // oak_leaves -> air (no match)
+        BLOCK_MAPPING.put("birch leaves", 0);            // birch_leaves -> air (no match)
+        BLOCK_MAPPING.put("smooth stone", 4);            // smooth_stone -> stone_bricks
+        BLOCK_MAPPING.put("brick slab", 6);              // brick_slab -> stone_brick_slab (bottom default)
+        BLOCK_MAPPING.put("blackstone slab", 6);         // blackstone_slab -> stone_brick_slab (bottom default)
+        BLOCK_MAPPING.put("polished blackstone brick slab", 6); // polished_blackstone_brick_slab -> stone_brick_slab
+        BLOCK_MAPPING.put("purpur pillar", 2);           // purpur_pillar -> white_concrete
+        BLOCK_MAPPING.put("oak log", 3);                 // oak_log -> oak_planks
+        BLOCK_MAPPING.put("red nether bricks", 4);       // red_nether_bricks -> stone_bricks
+        BLOCK_MAPPING.put("purpur block", 2);            // purpur_block -> white_concrete
+        BLOCK_MAPPING.put("stone bricks", 4);            // stone_bricks -> stone_bricks
+        BLOCK_MAPPING.put("birch planks", 3);            // birch_planks -> oak_planks
+        BLOCK_MAPPING.put("light gray stained glass pane", 8); // light_gray_stained_glass_pane -> glass
+        BLOCK_MAPPING.put("white wool", 2);              // white_wool -> white_concrete
+        BLOCK_MAPPING.put("dark oak trapdoor", 0);       // dark_oak_trapdoor -> air (no match)
+        BLOCK_MAPPING.put("stripped spruce wood", 3);    // stripped_spruce_wood -> oak_planks
+        BLOCK_MAPPING.put("crimson planks", 3);          // crimson_planks -> oak_planks
+        BLOCK_MAPPING.put("glass pane", 8);              // glass_pane -> glass
+        BLOCK_MAPPING.put("coarse dirt", 1);             // coarse_dirt -> dirt
+        BLOCK_MAPPING.put("yellow glazed terracotta", 2);// yellow_glazed_terracotta -> white_concrete
+        BLOCK_MAPPING.put("green glazed terracotta", 2); // green_glazed_terracotta -> white_concrete
+        BLOCK_MAPPING.put("ancient debris", 2);          // ancient_debris -> white_concrete
+        BLOCK_MAPPING.put("jungle planks", 3);           // jungle_planks -> oak_planks
+        BLOCK_MAPPING.put("dead brain coral block", 2);  // dead_brain_coral_block -> white_concrete
+        BLOCK_MAPPING.put("green terracotta", 2);        // green_terracotta -> white_concrete
+        BLOCK_MAPPING.put("dead bubble coral block", 2); // dead_bubble_coral_block -> white_concrete
+        BLOCK_MAPPING.put("light gray concrete", 2);     // light_gray_concrete -> white_concrete
+        BLOCK_MAPPING.put("bricks", 4);                  // bricks -> stone_bricks
+        BLOCK_MAPPING.put("white glazed terracotta", 2); // white_glazed_terracotta -> white_concrete
+        BLOCK_MAPPING.put("dark oak planks", 3);         // dark_oak_planks -> oak_planks
+        BLOCK_MAPPING.put("red sandstone wall", 0);      // red_sandstone_wall -> air (no match)
+        BLOCK_MAPPING.put("light gray terracotta", 2);   // light_gray_terracotta -> white_concrete
+        BLOCK_MAPPING.put("green concrete", 12);         // green_concrete -> green_concrete
+        BLOCK_MAPPING.put("green concrete powder", 12);  // green_concrete_powder -> green_concrete
+        BLOCK_MAPPING.put("andesite", 4);                // andesite -> stone_bricks
+    }
+
+    public void printMessageToAllPlayers(Level level, String message) {
+        Component messageComponent = Component.literal(message);
+
+        for (Player player : level.players()) {
+            player.sendSystemMessage(messageComponent);
+        }
+    }
 
     @SubscribeEvent
     public void diffusionTick(PlayerTickEvent.Post event) {
         Level level = event.getEntity().level();
 
+        if (startedInit && !completedInit) {
+            int initComplete = infer.getInitComplete();
+
+            if (initComplete == 1) {
+                completedInit = true;
+                printMessageToAllPlayers(level, "Denoise model init complete");
+            }
+        }
+
+        int lastError = infer.getLastError();
+
+        if (lastError != 0) {
+            printMessageToAllPlayers(level, "Denoise model error (" + lastError + ")");
+        }
+
         if (isDenoising) {
 
-            if (!doneInit) {
+            if (!startedInit) {
+
+                int major = infer.getVersionMajor();
+                int minor = infer.getVersionMinor();
+                int patch = infer.getVersionPatch();
+
+                printMessageToAllPlayers(level, "Denoise model version " + major + "." + minor + "." + patch + " init started");
+
                 infer.init();
-                doneInit = true;
+                startedInit = true;
             }
 
             if (!startedDiffusion) {
@@ -325,44 +259,23 @@ public class DiffusionMod
 
                             int block_id = 0;
 
-                            if (block == Blocks.AIR) {
-                                block_id = 0;
-                            } else if (block == Blocks.DIRT) {
-                                block_id = 1;
-                            } else if (block == Blocks.WHITE_CONCRETE) {
-                                block_id = 2;
-                            } else if (block == Blocks.STONE_BRICK_SLAB) {
-                                block_id = 3;
-                            } else if (block == Blocks.GRASS_BLOCK) {
-                                block_id = 4;
-                            } else if (block == Blocks.OAK_PLANKS) {
-                                block_id = 5;
-                            } else if (block == Blocks.STONE_BRICKS) {
-                                block_id = 6;
-                            }  else if (block == Blocks.STRIPPED_OAK_WOOD) {
-                                block_id = 7;
-                            } else if (block == Blocks.WHITE_WOOL) {
-                                block_id = 9;
-                            } else if (block == Blocks.GREEN_CONCRETE) {
-                                block_id = 10;
-                            } else if (block == Blocks.OAK_SLAB) {
-                                block_id = 15;
-                            }  else if (block == Blocks.SANDSTONE) {
-                                block_id = 16;
-                            } else if (block == Blocks.BRICKS) {
-                                block_id = 17;
-                            } else if (block == Blocks.GRAVEL) {
-                                block_id = 25;
+                            if (block == Blocks.STONE_BRICK_SLAB) {
+
+                                SlabType slabType = blockState.getValue(SlabBlock.TYPE);
+
+                                if (slabType == SlabType.BOTTOM) {
+                                    block_id = 6; // stone_brick_slab[type=bottom]
+                                } else if (slabType == SlabType.TOP) {
+                                    block_id = 7; // stone_brick_slab[type=top]
+                                } else if (slabType == SlabType.DOUBLE) {
+                                    block_id = 9; // stone_brick_slab[type=double]
+                                }
+                            } else {
+                                String name = block.getName().getString().toLowerCase();
+                                block_id = BLOCK_MAPPING.getOrDefault(name, 0);
                             }
 
-                            //int block_id = context_blocks[x + (16 * y) + (16 * 16 * z)];
                             infer.setContextBlock(x, y, z, block_id);
-
-                            //if (y == 0) {
-                            //    infer.setContextBlock(x, y, z, 1);
-                            //} else {
-                            //    infer.setContextBlock(x, y, z, 0);
-                            //}
                         }
                     }
                 }

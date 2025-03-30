@@ -43,6 +43,7 @@
  */
 const int VERSION_MAJOR = 0;
 const int VERSION_MINOR = 1;
+const int VERSION_PATCH = 0;
 
 const int INFER_ERROR_INVALID_ARG             = 1;
 const int INFER_ERROR_FAILED_OPERATION        = 2;
@@ -54,7 +55,7 @@ const int INFER_ERROR_SET_TENSOR_ADDRESS      = 7;
 const int INFER_ERROR_ENQUEUE                 = 8;
 const int INFER_ERROR_CREATE_RUNTIME          = 9;
 
-const int BLOCK_ID_COUNT = 96;
+const int BLOCK_ID_COUNT = 16;
 const int EMBEDDING_DIMENSIONS = 3;
 const int CHUNK_WIDTH = 16;
 
@@ -69,32 +70,23 @@ const char* onnx_file_path    = "ddim_single_update.onnx";
 const char* engine_cache_path = "ddim_single_update.trt";
 
 const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
-    { 0.0f,  0.0f,  0.0f }, {-2.0f, -1.0f,  0.1f }, { 2.0f, -1.0f,  0.2f }, { 0.0f, -1.0f, -0.1f },
-    {-2.0f,  2.0f, -1.0f }, {-2.0f, -1.0f, -0.2f }, { 0.0f, -1.0f, -0.3f }, {-2.0f, -1.0f,  0.4f },
-    { 2.0f,  2.0f,  2.0f }, { 2.0f, -1.0f,  0.5f }, {-2.0f,  2.0f,  0.0f }, { 2.0f,  0.0f, -0.5f },
-    { 0.0f, -1.0f, -0.6f }, {-1.5f,  1.0f,  0.6f }, { 2.0f,  0.0f,  0.7f }, {-2.0f, -1.0f, -0.7f },
-    { 0.0f, -1.0f,  0.8f }, { 0.0f, -1.0f, -0.8f }, { 0.0f, -1.0f, -0.9f }, { 0.0f, -1.0f,  0.9f },
-    { 0.0f, -1.0f, -1.0f }, { 0.0f, -1.0f,  1.0f }, { 0.0f, -1.0f,  0.0f }, {-2.0f,  0.0f,  0.1f },
-    { 2.0f,  0.0f, -1.1f }, {-2.0f, -1.0f, -1.2f }, { 0.0f, -1.0f,  1.1f }, { 0.0f, -1.0f, -1.3f },
-    { 0.0f, -1.0f,  1.2f }, { 0.0f, -1.0f, -1.4f }, {-2.0f,  1.0f, -1.5f }, { 0.5f,  0.0f,  0.5f },
-    { 0.5f,  1.0f,  0.5f }, { 0.5f,  0.0f,  1.5f }, { 0.5f,  1.0f,  1.5f }, { 0.0f,  0.5f,  1.5f },
-    { 0.0f,  0.5f,  0.5f }, { 1.0f,  0.5f,  1.5f }, { 1.0f,  0.5f,  0.5f }, {-3.0f,  1.0f, -2.0f },
-    {-2.0f,  1.0f,  1.7f }, { 1.5f,  1.0f, -0.5f }, { 1.5f,  2.0f, -0.5f }, { 1.5f,  1.0f, -1.5f },
-    { 1.5f,  2.0f, -1.5f }, { 2.0f,  1.5f, -0.5f }, { 2.0f,  1.5f, -1.5f }, { 1.0f,  1.5f, -0.5f },
-    { 1.0f,  1.5f, -1.5f }, { 0.0f, -2.0f,  1.0f }, { 0.0f, -1.0f,  1.1f }, { 0.0f, -1.0f, -1.1f },
-    { 2.0f,  0.0f, -1.2f }, { 0.0f, -1.0f,  1.2f }, { 0.0f, -1.0f, -1.3f }, { 0.0f, -1.0f,  1.3f },
-    { 0.0f, -1.0f, -1.4f }, { 0.0f, -1.0f,  1.4f }, { 0.0f, -1.0f, -1.5f }, { 2.0f,  0.0f,  1.2f },
-    { 2.0f,  0.0f, -1.6f }, { 2.0f,  0.0f,  1.3f }, { 2.0f,  0.0f, -1.7f }, { 2.0f,  0.0f,  1.4f },
-    { 2.0f,  0.0f, -1.8f }, { 2.0f,  0.0f,  1.5f }, { 2.0f,  0.0f, -1.9f }, { 2.0f,  0.0f,  1.6f },
-    { 2.0f,  0.0f, -2.0f }, { 2.0f,  0.0f,  1.7f }, { 2.0f,  0.0f, -2.1f }, { 0.0f, -1.0f, -2.2f },
-    { 0.0f, -1.0f,  1.8f }, { 0.0f, -1.0f, -2.3f }, { 0.0f, -1.0f,  1.9f }, { 0.0f, -1.0f, -2.4f },
-    { 0.0f, -1.0f,  2.0f }, { 0.0f, -1.0f, -2.5f }, { 0.0f, -1.0f,  2.1f }, { 0.0f, -1.0f, -2.6f },
-    { 0.0f, -1.0f,  2.2f }, { 0.0f, -1.0f, -2.7f }, { 0.0f, -1.0f,  2.3f }, { 0.0f, -1.0f, -2.8f },
-    { 0.0f, -1.0f,  2.4f }, { 0.0f, -1.0f, -2.9f }, { 0.0f, -1.0f,  2.5f }, { 0.0f, -1.0f, -3.0f },
-    { 0.0f, -1.0f,  2.6f }, { 0.0f, -1.0f, -3.1f }, { 0.0f, -1.0f,  2.7f }, { 0.0f, -1.0f, -3.2f },
-    { 0.0f, -1.0f,  2.8f }, { 0.0f, -1.0f, -3.3f }, { 0.0f, -1.0f,  2.9f }, { 2.0f,  0.0f, -3.4f },
+    {-1.2866,  1.1751, -0.8010},
+    {-1.8017, -1.0700,  1.3250},
+    {-1.2621, -0.8203, -1.5511},
+    {-2.8842,  0.5518,  1.2331},
+    {-0.4029,  0.7936,  1.0392},
+    {-1.5447, -0.2308,  1.0306},
+    { 0.4594,  1.0078, -1.3730},
+    { 0.1986,  0.7988, -1.2612},
+    {-0.8719, -0.1313, -1.0217},
+    { 0.6193, -0.0406, -1.6704},
+    {-1.5885,  0.7414,  0.6155},
+    { 0.0386,  2.0070,  1.4273},
+    {-0.8261, -0.5659,  0.7283},
+    {-0.7039,  0.5625,  0.1835},
+    { 0.0673, -0.7331, -1.1119},
+    { 0.0218, -0.3002,  0.3819}
 };
-
 
 /* 
  * Program wide global variables and buffers:
@@ -238,11 +230,6 @@ int denoise_thread_main() {
         }
         printf("Successfully parsed ONNX model\n");
 
-        if (builder->platformHasFastFp16()) {
-            config->setFlag(nvinfer1::BuilderFlag::kFP16);
-            printf("Enabled FP16 precision\n");
-        }
-
         config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
 
         nvinfer1::IHostMemory *plan = builder->buildSerializedNetwork(*network, *config);
@@ -370,15 +357,6 @@ int denoise_thread_main() {
             denoise_should_start = false; // Auto reset so it blocks next loop iteration.
         }
 
-        /* Fill in the middle 14^3 voxels of the mask*/
-        for         (int x = 1; x < CHUNK_WIDTH - 1; x++) {
-            for     (int y = 1; y < CHUNK_WIDTH - 1; y++) {
-                for (int z = 1; z < CHUNK_WIDTH - 1; z++) {
-                    x_mask[x][y][z] = 1.0f;
-                }
-            }
-        }
-
         /* Copy the "context" and "mask" tensors to the GPU */
         CUDA_CHECK(cudaMemcpy(cuda_x_context, x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(cuda_x_mask, x_mask, SIZE_X_MASK, cudaMemcpyHostToDevice));
@@ -491,6 +469,16 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
     return 0;
 }
 
+/**
+ * @brief Check init complete
+ * @return 0 on false, 1 on true
+ */
+extern "C" DLL_EXPORT
+int32_t Java_tbarnes_diffusionmod_Inference_getInitComplete(void* unused1, void* unused2) {
+
+    return init_complete;
+}
+
 /** 
  * @brief setContextBlock 
  *  Set the context for denoising to allow the in-painting process to generate 
@@ -520,6 +508,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
         x_context[dim][x][y][z] = block_id_embeddings[block_id][dim];
     }
     
+
     x_mask[x][y][z] = 1.0f;
 
     return 0;
@@ -628,16 +617,32 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
 extern "C" DLL_EXPORT
 int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
 
-    return (int32_t)global_last_error;
+    int32_t last_error = global_last_error;
+
+    global_last_error = 0; // Clear the error
+
+    return last_error;
 }
 
-/** 
- * @brief Retrieve the version integer. 
- */
+/** @brief Retrieve the major version integer.*/
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getVersion(void* unused1, void* unused2) {
+int32_t Java_tbarnes_diffusionmod_Inference_getVersionMajor(void* unused1, void* unused2) {
 
-    return (int32_t)VERSION_MAJOR << 16 | VERSION_MINOR;
+    return (int32_t)VERSION_MAJOR;
+}
+
+/** @brief Retrieve the minor version integer */
+extern "C" DLL_EXPORT
+int32_t Java_tbarnes_diffusionmod_Inference_getVersionMinor(void* unused1, void* unused2) {
+
+    return (int32_t)VERSION_MINOR;
+}
+
+/** @brief Retrieve the patch integer.*/
+extern "C" DLL_EXPORT
+int32_t Java_tbarnes_diffusionmod_Inference_getVersionPatch(void* unused1, void* unused2) {
+
+    return (int32_t)VERSION_PATCH;
 }
 
 #if 0
@@ -646,16 +651,40 @@ int main() {
 
     printf("Start of main");
 
-    int result = Java_tbarnes_diffusionmod_Inference_init(0, 0);
+    int version = Java_tbarnes_diffusionmod_Inference_getVersion(NULL, NULL);
+    printf("Version %d.%d", version >> 16, version | 0xFFFF);
+
+    /*
+    int createJob();
+    int setContextBlock(int job, int x, int y, int z, int block_id);
+    int startDiffusion(int job);
+    int getCurrentTimestep(int job);
+    int cacheCurrentTimestepForReading(int job);
+    int readBlockFromCachedTimestep(int job, int x, int y, int z);
+    int destroyJob(int job);
+    */
+
+    int result = Java_tbarnes_diffusionmod_Inference_init(NULL, NULL);
+
+    //Java_tbarnes_diffusionmod_Inference
+
+    int job_id = Java_tbarnes_diffusionmod_Inference_createJob(NULL, NULL);
+
+    if (job_id == -1) {
+        printf("Failed to create job");
+        return 0;
+    }
+
+    result = Java_tbarnes_diffusionmod_Inference_setContextBlock(job_id, 0, 0, 0, 0);
     
-    result = Java_tbarnes_diffusionmod_Inference_startDiffusion(0, 0);
+    result = Java_tbarnes_diffusionmod_Inference_startDiffusion(job_id, 0, 0);
 
     
     int32_t last_step = 1000;
 
     while (1) {
 
-        int32_t step = Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(NULL, NULL);
+        int32_t step = Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(job_id, NULL, NULL);
 
         if (step < last_step) {
             last_step = step;
@@ -665,7 +694,7 @@ int main() {
             for (int x = 0; x < 14; x++) {
                 for (int y = 0; y < 14; y++) {
                     for (int z = 0; z < 14; z++) {
-                        sum += (float) Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(NULL, NULL, x, y, z);
+                        sum += (float) Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(job_id, NULL, NULL, x, y, z);
 
                     }
                 }
@@ -673,8 +702,14 @@ int main() {
             
             printf("step = %d, sum = %f\n", step, sum);
             fflush(stdout);
+
+            if (step == 0) {
+                break;
+            }
         }
     }
+
+    result = Java_tbarnes_diffusionmod_Inference_cleanupJob(job_id);
     
     return 0;
 }
