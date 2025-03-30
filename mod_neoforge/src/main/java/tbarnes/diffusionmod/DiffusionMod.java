@@ -55,31 +55,31 @@ import net.minecraft.world.level.block.state.properties.*;
 import java.util.*;
 import java.util.function.Supplier;
 
-// The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(DiffusionMod.MODID)
-public class DiffusionMod
-{
-    // Define mod id in a common place for everything to reference
+public class DiffusionMod {
+
     public static final String MODID = "diffusionmod";
-    // Directly reference a slf4j logger
     private static final Logger LOGGER = LogUtils.getLogger();
-    // Create a Deferred Register to hold Blocks which will all be registered under the "examplemod" namespace
-    public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MODID);
-    // Create a Deferred Register to hold Items which will all be registered under the "examplemod" namespace
-    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
-    // Create a Deferred Register to hold CreativeModeTabs which will all be registered under the "examplemod" namespace
-    public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
-    // Creates a new Block with the id "examplemod:example_block", combining the namespace and path
-    public static final DeferredBlock<Block> EXAMPLE_BLOCK = BLOCKS.registerSimpleBlock("example_block", BlockBehaviour.Properties.of().mapColor(MapColor.STONE));
-    // Creates a new BlockItem with the id "examplemod:example_block", combining the namespace and path
-    public static final DeferredItem<BlockItem> EXAMPLE_BLOCK_ITEM = ITEMS.registerSimpleBlockItem("example_block", EXAMPLE_BLOCK);
+    private static final Inference infer = new Inference();
+    
+    private static final Queue<PrimedTnt> diffusionTnts = new LinkedList<>();
+    private static final Component diffusion_tnt_name = Component.literal("Diffusion TNT");
 
-    // Creates a new food item with the id "examplemod:example_id", nutrition 1 and saturation 2
-    public static final DeferredItem<Item> EXAMPLE_ITEM = ITEMS.registerSimpleItem("example_item", new Item.Properties().food(new FoodProperties.Builder()
-            .alwaysEdible().nutrition(1).saturationModifier(2f).build()));
+    // Arbitrarily large fuse so we can handle the explosion manually in 
+    private static final int maxFuse = 1000; 
+    private static final int fuseLength = 80;
 
-    public static final BlockState[] BLOCK_STATES = new BlockState[] {
+    private static BlockPos userClickedPos = new BlockPos(0, 0, 0);
+    private static Boolean isDenoising = false;
+    private static int denoiseCount = 0;
+
+    private static Boolean startedInit = false;
+    private static Boolean completedInit = false;
+    private static Boolean startedDiffusion = false;
+    private static int previousTimestep = 1000;
+
+    private static final BlockState[] BLOCK_STATES = new BlockState[] {
             // 0 - minecraft:air
             Blocks.AIR.defaultBlockState(),
 
@@ -128,92 +128,116 @@ public class DiffusionMod
             // 14 - minecraft:sandstone
             Blocks.SANDSTONE.defaultBlockState(),
 
-            // 15 - minecraft:stone_brick (should be stone_bricks)
+            // 15 - minecraft:stone_bricks 
+            // (same as #4. This is an accidental redundancy. It will be cleaned up
+            // if another embedding is generated)
             Blocks.STONE_BRICKS.defaultBlockState()
     };
 
-    Inference infer = new Inference();
-
-    static BlockPos userClickedPos = new BlockPos(0, 0, 0);
-    static Boolean isDenoising = false;
-    static int denoiseCount = 0;
-
-    static Boolean startedInit = false;
-    static Boolean completedInit = false;
-    static Boolean startedDiffusion = false;
-    static int previousTimestep = 1000;
-
-    public static final HashMap<String, Integer> BLOCK_MAPPING = new HashMap<>();
+    private static final HashMap<String, Integer> block_mapping = new HashMap<>();
 
     static {
-        BLOCK_MAPPING.put("air", 0);                     // air -> air
-        BLOCK_MAPPING.put("dirt", 1);                    // dirt -> dirt
-        BLOCK_MAPPING.put("grass block", 5);             // grass_block -> grass_block
-        BLOCK_MAPPING.put("cobblestone slab", 6);        // cobblestone_slab -> stone_brick_slab (bottom default)
-        BLOCK_MAPPING.put("stone brick slab", 6);        // stone_brick_slab -> stone_brick_slab (bottom default)
-        BLOCK_MAPPING.put("end stone brick slab", 6);    // end_stone_brick_slab -> stone_brick_slab (bottom default)
-        BLOCK_MAPPING.put("spruce planks", 3);           // spruce_planks -> oak_planks
-        BLOCK_MAPPING.put("oak planks", 3);              // oak_planks -> oak_planks
-        BLOCK_MAPPING.put("chiseled quartz block", 2);   // chiseled_quartz_block -> white_concrete
-        BLOCK_MAPPING.put("stone", 4);                   // stone -> stone_bricks
-        BLOCK_MAPPING.put("end stone bricks", 4);        // end_stone_bricks -> stone_bricks
-        BLOCK_MAPPING.put("cobblestone", 4);             // cobblestone -> stone_bricks
-        BLOCK_MAPPING.put("green wool", 5);              // green_wool -> grass_block
-        BLOCK_MAPPING.put("white concrete", 2);          // white_concrete -> white_concrete
-        BLOCK_MAPPING.put("white terracotta", 2);        // white_terracotta -> white_concrete
-        BLOCK_MAPPING.put("stripped oak wood", 3);       // stripped_oak_wood -> oak_planks
-        BLOCK_MAPPING.put("polished blackstone", 2);     // polished_blackstone -> white_concrete
-        BLOCK_MAPPING.put("red sandstone", 2);           // red_sandstone -> white_concrete
-        BLOCK_MAPPING.put("granite", 11);                // granite -> gravel
-        BLOCK_MAPPING.put("oak leaves", 0);              // oak_leaves -> air (no match)
-        BLOCK_MAPPING.put("birch leaves", 0);            // birch_leaves -> air (no match)
-        BLOCK_MAPPING.put("smooth stone", 4);            // smooth_stone -> stone_bricks
-        BLOCK_MAPPING.put("brick slab", 6);              // brick_slab -> stone_brick_slab (bottom default)
-        BLOCK_MAPPING.put("blackstone slab", 6);         // blackstone_slab -> stone_brick_slab (bottom default)
-        BLOCK_MAPPING.put("polished blackstone brick slab", 6); // polished_blackstone_brick_slab -> stone_brick_slab
-        BLOCK_MAPPING.put("purpur pillar", 2);           // purpur_pillar -> white_concrete
-        BLOCK_MAPPING.put("oak log", 3);                 // oak_log -> oak_planks
-        BLOCK_MAPPING.put("red nether bricks", 4);       // red_nether_bricks -> stone_bricks
-        BLOCK_MAPPING.put("purpur block", 2);            // purpur_block -> white_concrete
-        BLOCK_MAPPING.put("stone bricks", 4);            // stone_bricks -> stone_bricks
-        BLOCK_MAPPING.put("birch planks", 3);            // birch_planks -> oak_planks
-        BLOCK_MAPPING.put("light gray stained glass pane", 8); // light_gray_stained_glass_pane -> glass
-        BLOCK_MAPPING.put("white wool", 2);              // white_wool -> white_concrete
-        BLOCK_MAPPING.put("dark oak trapdoor", 0);       // dark_oak_trapdoor -> air (no match)
-        BLOCK_MAPPING.put("stripped spruce wood", 3);    // stripped_spruce_wood -> oak_planks
-        BLOCK_MAPPING.put("crimson planks", 3);          // crimson_planks -> oak_planks
-        BLOCK_MAPPING.put("glass pane", 8);              // glass_pane -> glass
-        BLOCK_MAPPING.put("coarse dirt", 1);             // coarse_dirt -> dirt
-        BLOCK_MAPPING.put("yellow glazed terracotta", 2);// yellow_glazed_terracotta -> white_concrete
-        BLOCK_MAPPING.put("green glazed terracotta", 2); // green_glazed_terracotta -> white_concrete
-        BLOCK_MAPPING.put("ancient debris", 2);          // ancient_debris -> white_concrete
-        BLOCK_MAPPING.put("jungle planks", 3);           // jungle_planks -> oak_planks
-        BLOCK_MAPPING.put("dead brain coral block", 2);  // dead_brain_coral_block -> white_concrete
-        BLOCK_MAPPING.put("green terracotta", 2);        // green_terracotta -> white_concrete
-        BLOCK_MAPPING.put("dead bubble coral block", 2); // dead_bubble_coral_block -> white_concrete
-        BLOCK_MAPPING.put("light gray concrete", 2);     // light_gray_concrete -> white_concrete
-        BLOCK_MAPPING.put("bricks", 4);                  // bricks -> stone_bricks
-        BLOCK_MAPPING.put("white glazed terracotta", 2); // white_glazed_terracotta -> white_concrete
-        BLOCK_MAPPING.put("dark oak planks", 3);         // dark_oak_planks -> oak_planks
-        BLOCK_MAPPING.put("red sandstone wall", 0);      // red_sandstone_wall -> air (no match)
-        BLOCK_MAPPING.put("light gray terracotta", 2);   // light_gray_terracotta -> white_concrete
-        BLOCK_MAPPING.put("green concrete", 12);         // green_concrete -> green_concrete
-        BLOCK_MAPPING.put("green concrete powder", 12);  // green_concrete_powder -> green_concrete
-        BLOCK_MAPPING.put("andesite", 4);                // andesite -> stone_bricks
+        block_mapping.put("air", 0);                   // air -> air
+        block_mapping.put("dirt", 1);                  // dirt -> dirt
+        block_mapping.put("white concrete", 2);        // white_concrete -> white_concrete
+        block_mapping.put("oak planks", 3);            // oak_planks -> oak_planks
+        block_mapping.put("stone bricks", 4);          // stone_bricks -> stone_bricks
+        block_mapping.put("grass block", 5);           // grass_block -> grass_block
+        block_mapping.put("stone brick slab", 6);      // stone_brick_slab -> stone_brick_slab (bottom default)
+        block_mapping.put("glass", 8);                 // glass -> glass 
+        block_mapping.put("bookshelf", 10);            // bookshelf -> bookshelf 
+        block_mapping.put("gravel", 11);               // gravel -> gravel 
+        block_mapping.put("green concrete", 12);       // green_concrete -> green_concrete
+        block_mapping.put("oak slab", 13);             // oak_slab -> oak_slab 
+        block_mapping.put("sandstone", 14);             // oak_slab -> oak_slab 
+        block_mapping.put("cobblestone slab", 6);      // cobblestone_slab -> stone_brick_slab (bottom default)
+        block_mapping.put("end stone brick slab", 6);  // end_stone_brick_slab -> stone_brick_slab (bottom default)
+        block_mapping.put("spruce planks", 3);         // spruce_planks -> oak_planks
+        block_mapping.put("chiseled quartz block", 2); // chiseled_quartz_block -> white_concrete
+        block_mapping.put("stone", 4);                 // stone -> stone_bricks
+        block_mapping.put("end stone bricks", 4);      // end_stone_bricks -> stone_bricks
+        block_mapping.put("cobblestone", 4);           // cobblestone -> stone_bricks
+        block_mapping.put("green wool", 5);            // green_wool -> grass_block
+        block_mapping.put("stripped oak wood", 3);     // stripped_oak_wood -> oak_planks
+        block_mapping.put("granite", 11);              // granite -> gravel
+        block_mapping.put("smooth stone", 4);          // smooth_stone -> stone_bricks
+        block_mapping.put("brick slab", 6);            // brick_slab -> stone_brick_slab (bottom default)
+        block_mapping.put("blackstone slab", 6);       // blackstone_slab -> stone_brick_slab (bottom default)
+        block_mapping.put("purpur pillar", 2);         // purpur_pillar -> white_concrete
+        block_mapping.put("oak log", 3);               // oak_log -> oak_planks
+        block_mapping.put("red nether bricks", 4);     // red_nether_bricks -> stone_bricks
+        block_mapping.put("purpur block", 2);          // purpur_block -> white_concrete
+        block_mapping.put("birch planks", 3);          // birch_planks -> oak_planks
+        block_mapping.put("white wool", 2);            // white_wool -> white_concrete
+        block_mapping.put("stripped spruce wood", 3);  // stripped_spruce_wood -> oak_planks
+        block_mapping.put("crimson planks", 3);        // crimson_planks -> oak_planks
+        block_mapping.put("glass pane", 8);            // glass_pane -> glass
+        block_mapping.put("coarse dirt", 1);           // coarse_dirt -> dirt
+        block_mapping.put("ancient debris", 2);        // ancient_debris -> white_concrete
+        block_mapping.put("jungle planks", 3);         // jungle_planks -> oak_planks
+        block_mapping.put("bricks", 4);                // bricks -> stone_bricks
+        block_mapping.put("dark oak planks", 3);       // dark_oak_planks -> oak_planks
+        block_mapping.put("green concrete powder", 12);// green_concrete_powder -> green_concrete
+        block_mapping.put("andesite", 4);              // andesite -> stone_bricks
     }
 
-    public void printMessageToAllPlayers(Level level, String message) {
-        Component messageComponent = Component.literal(message);
+    /** @brief Constructor
+     */
+    public DiffusionMod(IEventBus modEventBus, ModContainer modContainer) {
 
-        for (Player player : level.players()) {
-            player.sendSystemMessage(messageComponent);
+        NeoForge.EVENT_BUS.register(this);
+        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+    }
+
+    /** @brief This function handles the logic for when the player
+     * places one of the diffusion TNT blocks
+     */
+    @SubscribeEvent
+    public void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+
+        if (event.getLevel().isClientSide()) { return; }
+
+        Player player = null;
+
+        if (event.getEntity() instanceof Player) {
+            player = (Player) event.getEntity();
+        }
+
+        if (player == null) { return; }
+
+        ItemStack placedStack = player.getMainHandItem();
+
+        if (event.getPlacedBlock().getBlock() == Blocks.TNT && 
+                isDiffusionTnt(placedStack)) {
+
+            Level level = (Level)event.getLevel();
+            BlockPos pos = event.getPos();
+
+            event.setCanceled(true);
+
+            level.setBlock(pos, Blocks.TNT.defaultBlockState(), 11);
+            PrimedTnt tnt = new PrimedTnt(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player);
+
+            tnt.setFuse(maxFuse);
+
+            level.addFreshEntity(tnt);
+            diffusionTnts.add(tnt);
         }
     }
 
+    /** @brief This is the main logic for the mod. It keeps track of which
+     * TNT blocks have been placed and triggers the diffusion process.
+     */
     @SubscribeEvent
-    public void diffusionTick(PlayerTickEvent.Post event) {
-        Level level = event.getEntity().level();
+    public void onLevelTick(LevelTickEvent.Post event) {
 
+        Level level = event.getLevel();
+
+        if (level.isClientSide()) return;
+
+        /*
+         * Handle checking for initialization complete 
+         */
         if (startedInit && !completedInit) {
             int initComplete = infer.getInitComplete();
 
@@ -223,67 +247,23 @@ public class DiffusionMod
             }
         }
 
+        /* 
+         * Handle error reporting from the DLL 
+         */
         int lastError = infer.getLastError();
 
         if (lastError != 0) {
             printMessageToAllPlayers(level, "Denoise model error (" + lastError + ")");
         }
 
+        /* 
+         * Handle the logic for diffusion setups. 
+         */
         if (isDenoising) {
-
-            if (!startedInit) {
-
-                int major = infer.getVersionMajor();
-                int minor = infer.getVersionMinor();
-                int patch = infer.getVersionPatch();
-
-                printMessageToAllPlayers(level, "Denoise model version " + major + "." + minor + "." + patch + " init started");
-
-                infer.init();
-                startedInit = true;
-            }
-
-            if (!startedDiffusion) {
-
-                for (int x = 0; x < 16; x++) {
-                    for (int y = 0; y < 16; y++) {
-                        for (int z = 0; z < 16; z++) {
-
-                            BlockPos position = new BlockPos(
-                                    userClickedPos.getX() + x,
-                                    userClickedPos.getY() + y,
-                                    userClickedPos.getZ() + z);
-
-                            BlockState blockState = level.getBlockState(position);
-                            Block block = blockState.getBlock();
-
-                            int block_id = 0;
-
-                            if (block == Blocks.STONE_BRICK_SLAB) {
-
-                                SlabType slabType = blockState.getValue(SlabBlock.TYPE);
-
-                                if (slabType == SlabType.BOTTOM) {
-                                    block_id = 6; // stone_brick_slab[type=bottom]
-                                } else if (slabType == SlabType.TOP) {
-                                    block_id = 7; // stone_brick_slab[type=top]
-                                } else if (slabType == SlabType.DOUBLE) {
-                                    block_id = 9; // stone_brick_slab[type=double]
-                                }
-                            } else {
-                                String name = block.getName().getString().toLowerCase();
-                                block_id = BLOCK_MAPPING.getOrDefault(name, 0);
-                            }
-
-                            infer.setContextBlock(x, y, z, block_id);
-                        }
-                    }
-                }
-
-                infer.startDiffusion();
-                startedDiffusion = true;
-            }
-
+            /*
+             * Logic for receiving new denoised blocks 
+             * for each timestep.
+             */
             int timestep = infer.getCurrentTimestep();
 
             if (timestep < previousTimestep) {
@@ -293,7 +273,6 @@ public class DiffusionMod
                     for (int y = 0; y < 14; y++) {
                         for (int z = 0; z < 14; z++) {
 
-                            //int new_id = DUMMY_IDS[x + 14 * y + (14 * 14) * z];
                             int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
                             BlockPos position = new BlockPos(
@@ -312,273 +291,148 @@ public class DiffusionMod
             if (timestep == 0) {
                 isDenoising = false;
                 startedDiffusion = false;
-                previousTimestep = 1000;
+                previousTimestep = 1000; // Timesteps start at 1000
             }
         }
-    }
 
-    public static final DeferredItem<Item> DIFFUSION_EGG = ITEMS.register("diffusion_egg", () ->
-            new Item(new Item.Properties().stacksTo(16)) {
-                @Override
-                public InteractionResult useOn(UseOnContext context) {
-                    if (!context.getLevel().isClientSide) {
-                        BlockPos pos = context.getClickedPos();
-
-                        if (!isDenoising) {
-                            userClickedPos = pos;
-                            isDenoising = true;
-                        }
-
-                        //BlockState currentState = level.getBlockState(pos);
-                        //Block block = currentState.getBlock();
-                        //BlockState defaultState = block.defaultBlockState();
-                        //level.setBlockAndUpdate(pos, defaultState);
-
-                        ItemStack stack = context.getItemInHand();
-                        stack.shrink(1);
-
-                        return InteractionResult.SUCCESS;
-                    }
-                    return InteractionResult.CONSUME;
-                }
-            }
-    );
-
-    // Add this to include the egg in your creative tab
-    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> EXAMPLE_TAB = CREATIVE_MODE_TABS.register("example_tab", () -> CreativeModeTab.builder()
-            .title(Component.translatable("itemGroup.examplemod"))
-            .withTabsBefore(CreativeModeTabs.COMBAT)
-            .icon(() -> EXAMPLE_ITEM.get().getDefaultInstance())
-            .displayItems((parameters, output) -> {
-                output.accept(EXAMPLE_ITEM.get());
-                output.accept(DIFFUSION_EGG.get());
-            }).build());
-
-    // The constructor for the mod class is the first code that is run when your mod is loaded.
-    // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
-    public DiffusionMod(IEventBus modEventBus, ModContainer modContainer)
-    {
-        String file = "Current working directory: " + System.getProperty("user.dir");
-        // Register the commonSetup method for modloading
-        modEventBus.addListener(this::commonSetup);
-
-        //NeoForge.EVENT_BUS.addListener(DiffusionMod::denoiseTick);
-
-        // Register the Deferred Register to the mod event bus so blocks get registered
-        BLOCKS.register(modEventBus);
-        // Register the Deferred Register to the mod event bus so items get registered
-        ITEMS.register(modEventBus);
-        // Register the Deferred Register to the mod event bus so tabs get registered
-        CREATIVE_MODE_TABS.register(modEventBus);
-
-        // Register ourselves for server and other game events we are interested in.
-        // Note that this is necessary if and only if we want *this* class (ExampleMod) to respond directly to events.
-        // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
-        NeoForge.EVENT_BUS.register(this);
-
-        // Register the item to a creative tab
-        modEventBus.addListener(this::addCreative);
-
-        // Register our mod's ModConfigSpec so that FML can create and load the config file for us
-        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
-    }
-
-    private void commonSetup(final FMLCommonSetupEvent event)
-    {
-        // Some common setup code
-        LOGGER.info("HELLO FROM COMMON SETUP");
-
-        if (Config.logDirtBlock)
-            LOGGER.info("DIRT BLOCK >> {}", BuiltInRegistries.BLOCK.getKey(Blocks.DIRT));
-
-        LOGGER.info(Config.magicNumberIntroduction + Config.magicNumber);
-
-        Config.items.forEach((item) -> LOGGER.info("ITEM >> {}", item.toString()));
-    }
-
-    // Add the example block item to the building blocks tab
-    private void addCreative(BuildCreativeModeTabContentsEvent event)
-    {
-        if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS)
-            event.accept(EXAMPLE_BLOCK_ITEM);
-    }
-
-    // You can use SubscribeEvent and let the Event Bus discover methods to call
-    @SubscribeEvent
-    public void onServerStarting(ServerStartingEvent event)
-    {
-        // Do something when the server starts
-        LOGGER.info("HELLO from server starting");
-    }
-
-    /// Begin new TNT ///////////////////////////////////////////////////////////
-    ///
-    ///
-    private static final Set<PrimedTnt> magicTnts = new HashSet<>();
-
-    public static void markMagicTnt(PrimedTnt tnt) {
-        magicTnts.add(tnt);
-    }
-
-    public static boolean isMagicTnt(PrimedTnt tnt) {
-        return magicTnts.contains(tnt);
-    }
-
-    private static final Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
-    private static final Component EXPLOSION_WOOL_NAME = Component.literal("Explosion Wool").withStyle(style -> style.withColor(0xFF5555));
-    private static final Component MAGIC_TNT_NAME = Component.literal("Magic TNT");
-
-    public static ItemStack createMagicTnt() {
-        ItemStack tnt = new ItemStack(Items.TNT);
-        tnt.set(CUSTOM_NAME_SUPPLIER, MAGIC_TNT_NAME);
-        return tnt;
-    }
-
-    private boolean isMagicTnt(ItemStack stack) {
-        Component customName = stack.get(DataComponents.CUSTOM_NAME);
-        return customName != null && customName.equals(MAGIC_TNT_NAME);
-    }
-
-    @SubscribeEvent
-    public void onEntityTick(LevelTickEvent.Post event) {
-        Level level = event.getLevel();
-
-        if (level.isClientSide()) return;
-
-        Iterator<PrimedTnt> iterator = magicTnts.iterator();
+        /*
+         * This iterates over the active diffusion TNT entities in the world
+         * and determines which one(s) should trigger the next diffusion event.
+         */
+        Iterator<PrimedTnt> iterator = diffusionTnts.iterator();
+        Boolean startDiffusion = false;
 
         while (iterator.hasNext()) {
             PrimedTnt tnt = iterator.next();
             BlockPos pos = tnt.getOnPos();
 
-            if (tnt.getFuse() < 80) {
+            int fuseTriggerPoint = maxFuse - fuseLength;
+
+            if (tnt.getFuse() < fuseTriggerPoint) {
                 if (!isDenoising) {
+
+                    /* Center the new diffusion on the TNT block */
                     userClickedPos = new BlockPos(
                             tnt.getBlockX() - 7,
                             tnt.getBlockY() - 1,
                             tnt.getBlockZ() - 7);
-                    isDenoising = true;
-
-                    level.playSound(null, pos, SoundEvents.DRAGON_FIREBALL_EXPLODE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 0.25f);
 
                     iterator.remove();
                     tnt.discard();
+
+                    isDenoising = true;
+                    startDiffusion = true;
+
+                    break; // Break from the while loop since we only start one at a time.
                 } else {
-                    tnt.setFuse(90); // Set the fuse longer to queue for another denoising explosion.
+                    tnt.setFuse(fuseTriggerPoint);
                 }
             }
         }
-    }
 
-    @SubscribeEvent
-    public void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        Player player = event.getEntity();
-        Level level = event.getLevel();
-        BlockPos pos = event.getPos();
-        ItemStack itemStack = event.getItemStack();
+        if (startDiffusion) {
+            /*
+             * Context setup
+             * Each Minecraft block needs to be converted to a block_id
+             * integer that the inference DLL knows how to interpret.
+             */
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
 
-        if (level.isClientSide()) return;
+                        BlockPos position = new BlockPos(
+                                userClickedPos.getX() + x,
+                                userClickedPos.getY() + y,
+                                userClickedPos.getZ() + z);
 
-        level.playSound(null, pos.getX(), pos.getY(), pos.getZ(), SoundEvents.SLIME_DEATH, net.minecraft.sounds.SoundSource.BLOCKS, 1.0F, 1.0F);
-    }
+                        BlockState blockState = level.getBlockState(position);
+                        Block block = blockState.getBlock();
 
-    @SubscribeEvent
-    public void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
-        if (event.getLevel().isClientSide()) return;
+                        int block_id = 0;
 
-        Player player = event.getEntity() instanceof Player ? (Player) event.getEntity() : null;
-        if (player == null) return;
+                        if (block == Blocks.STONE_BRICK_SLAB) {
 
-        ItemStack placedStack = player.getMainHandItem();
-        if (event.getPlacedBlock().getBlock() == Blocks.TNT && isMagicTnt(placedStack)) {
+                            SlabType slabType = blockState.getValue(SlabBlock.TYPE);
 
-            Level level = (Level) event.getLevel();
-            BlockPos pos = event.getPos();
+                            if (slabType == SlabType.BOTTOM) {
+                                block_id = 6; // stone_brick_slab[type=bottom]
+                            } else if (slabType == SlabType.TOP) {
+                                block_id = 7; // stone_brick_slab[type=top]
+                            } else if (slabType == SlabType.DOUBLE) {
+                                block_id = 9; // stone_brick_slab[type=double]
+                            }
+                        } else {
+                            String name = block.getName().getString().toLowerCase();
+                            block_id = block_mapping.getOrDefault(name, 0);
+                        }
 
-            // Cancel default TNT placement
-            event.setCanceled(true);
+                        infer.setContextBlock(x, y, z, block_id);
+                    }
+                }
+            }
 
-            // Place vanilla TNT and prime it
-            level.setBlock(pos, Blocks.TNT.defaultBlockState(), 11);
-            PrimedTnt tnt = new PrimedTnt(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, player);
-            tnt.setFuse(160);
-            level.addFreshEntity(tnt);
-
-            level.playSound(null, pos, SoundEvents.TNT_PRIMED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
-
-
-            // Mark this TNT as "magic" using a server-side tracking system
-            markMagicTnt(tnt);
-
-        } else if (placedStack.getItem() == Items.WHITE_WOOL && isExplosionWool(placedStack)) {
-            Level level = (Level) event.getLevel();
-            BlockPos pos = event.getPos();
-
-            event.setCanceled(true);
-
-            level.explode(
-                    null,
-                    pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
-                    4.0f,
-                    ExplosionInteraction.BLOCK
-            );
-
-            level.playSound(null, pos, SoundEvents.TNT_PRIMED, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
-            //level.playSound(null, pos, SoundEvents.GENERIC_EXPLODE, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
-
-            LOGGER.info("Explosion Wool detonated at " + pos + " by " + player.getName().getString());
+            /* Tell the inference DLL that we're starting diffusion */
+            infer.startDiffusion();
+            startedDiffusion = true;
         }
-    }
-
-    /// Begin Explosion Wool///////////////////////////////////////////////////////////
-    ///
-
-
-    private boolean isExplosionWool(ItemStack stack) {
-        Component customName = stack.get(DataComponents.CUSTOM_NAME);
-        return customName != null && customName.equals(EXPLOSION_WOOL_NAME);
-    }
-
-
-    public static ItemStack createExplosionWool() {
-        ItemStack wool = new ItemStack(Items.WHITE_WOOL);
-        wool.set(CUSTOM_NAME_SUPPLIER, EXPLOSION_WOOL_NAME);
-        return wool;
     }
 
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         Player player = event.getEntity();
-        if (!player.level().isClientSide()) {  // Server-side only
-            ItemStack wool = createExplosionWool();
+        Level level = player.level();
 
-            if (!player.getInventory().contains(wool)) {
-                player.getInventory().add(wool);
-                LOGGER.info("Gave " + player.getName().getString() + " an Explosion Wool");
-            }
+        if (level.isClientSide()) { return; }
 
-            ItemStack specialTnt = createMagicTnt();
+        ItemStack diffusionTnt = createDiffusionTnt();
 
-            if (!player.getInventory().contains(specialTnt)) {
-                player.getInventory().add(specialTnt);
-                LOGGER.info("Gave " + player.getName().getString() + " magic tnt");
-            }
+        if (!player.getInventory().contains(diffusionTnt)) {
+            player.getInventory().add(diffusionTnt);
+        }
 
+        if (!startedInit) {
+            int major = infer.getVersionMajor();
+            int minor = infer.getVersionMinor();
+            int patch = infer.getVersionPatch();
+
+            printMessageToAllPlayers(level, "Denoise model version " + major + "." + minor + "." + patch + " init started");
+
+            infer.init();
+            startedInit = true;
         }
     }
 
-    /// ///////////////////////////////////////////////////////////
+    @SubscribeEvent
+    public void onServerStarting(ServerStartingEvent event) {
+        LOGGER.info("Server starting");
 
-    // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
-    @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
-    public static class ClientModEvents
-    {
-        @SubscribeEvent
-        public static void onClientSetup(FMLClientSetupEvent event)
-        {
-            // Some client setup code
-            LOGGER.info("HELLO FROM CLIENT SETUP");
-            LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+    }
+
+    private static void printMessageToAllPlayers(Level level, String message) {
+        Component messageComponent = Component.literal(message);
+
+        for (Player player : level.players()) {
+            player.sendSystemMessage(messageComponent);
         }
+
+        LOGGER.info(message);
+    }
+
+    /* We keep track of which TNT blocks are related to this mod by adding a custom name */
+    private static ItemStack createDiffusionTnt() {
+
+        ItemStack tnt = new ItemStack(Items.TNT);
+
+        Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
+        tnt.set(CUSTOM_NAME_SUPPLIER, diffusion_tnt_name);
+
+        return tnt;
+    }
+
+    private boolean isDiffusionTnt(ItemStack stack) {
+
+        Component customName = stack.get(DataComponents.CUSTOM_NAME);
+        return customName != null && customName.equals(diffusion_tnt_name);
     }
 }
+
