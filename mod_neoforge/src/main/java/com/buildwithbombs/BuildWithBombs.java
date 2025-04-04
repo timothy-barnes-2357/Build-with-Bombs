@@ -1,40 +1,16 @@
-package tbarnes.diffusionmod;
+package com.buildwithbombs;
 
-import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
-import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
-import net.minecraft.client.Minecraft;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.food.FoodProperties;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.CreativeModeTab;
-import net.minecraft.world.item.CreativeModeTabs;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockBehaviour;
-import net.minecraft.world.level.material.MapColor;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.config.ModConfig;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
-import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
-import net.neoforged.neoforge.registries.DeferredBlock;
-import net.neoforged.neoforge.registries.DeferredHolder;
-import net.neoforged.neoforge.registries.DeferredItem;
-import net.neoforged.neoforge.registries.DeferredRegister;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
@@ -44,9 +20,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.component.DataComponentType;
-import net.minecraft.sounds.SoundEvents;
 import net.neoforged.neoforge.event.level.BlockEvent;
-import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.minecraft.world.level.block.SlabBlock;
@@ -55,10 +29,15 @@ import net.minecraft.world.level.block.state.properties.*;
 import java.util.*;
 import java.util.function.Supplier;
 
-@Mod(DiffusionMod.MODID)
-public class DiffusionMod {
+@Mod(BuildWithBombs.MODID)
+public class BuildWithBombs {
 
-    public static final String MODID = "diffusionmod";
+    public static final String MODID = "buildwithbombs";
+
+    private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
+    private static final int modMinor = 1;
+    private static final int modPatch = 0;
+
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private final Inference infer;
@@ -130,65 +109,65 @@ public class DiffusionMod {
 
             // 15 - minecraft:stone_bricks 
             // (same as #4. This is an accidental redundancy. It will be cleaned up
-            // if another embedding is generated)
+            // if/when another embedding is generated)
             Blocks.STONE_BRICKS.defaultBlockState()
     };
 
-    private static final HashMap<String, Integer> block_mapping = new HashMap<>();
+    private static final HashMap<String, Integer> blockMapping = new HashMap<>();
 
     static {
-        block_mapping.put("air", 0);                   // air -> air
-        block_mapping.put("dirt", 1);                  // dirt -> dirt
-        block_mapping.put("white concrete", 2);        // white_concrete -> white_concrete
-        block_mapping.put("oak planks", 3);            // oak_planks -> oak_planks
-        block_mapping.put("stone bricks", 4);          // stone_bricks -> stone_bricks
-        block_mapping.put("grass block", 5);           // grass_block -> grass_block
-        block_mapping.put("stone brick slab", 6);      // stone_brick_slab -> stone_brick_slab (bottom default)
-        block_mapping.put("glass", 8);                 // glass -> glass 
-        block_mapping.put("bookshelf", 10);            // bookshelf -> bookshelf 
-        block_mapping.put("gravel", 11);               // gravel -> gravel 
-        block_mapping.put("green concrete", 12);       // green_concrete -> green_concrete
-        block_mapping.put("oak slab", 13);             // oak_slab -> oak_slab 
-        block_mapping.put("sandstone", 14);             // oak_slab -> oak_slab 
-        block_mapping.put("cobblestone slab", 6);      // cobblestone_slab -> stone_brick_slab (bottom default)
-        block_mapping.put("end stone brick slab", 6);  // end_stone_brick_slab -> stone_brick_slab (bottom default)
-        block_mapping.put("spruce planks", 3);         // spruce_planks -> oak_planks
-        block_mapping.put("chiseled quartz block", 2); // chiseled_quartz_block -> white_concrete
-        block_mapping.put("stone", 4);                 // stone -> stone_bricks
-        block_mapping.put("end stone bricks", 4);      // end_stone_bricks -> stone_bricks
-        block_mapping.put("cobblestone", 4);           // cobblestone -> stone_bricks
-        block_mapping.put("green wool", 5);            // green_wool -> grass_block
-        block_mapping.put("stripped oak wood", 3);     // stripped_oak_wood -> oak_planks
-        block_mapping.put("granite", 11);              // granite -> gravel
-        block_mapping.put("smooth stone", 4);          // smooth_stone -> stone_bricks
-        block_mapping.put("brick slab", 6);            // brick_slab -> stone_brick_slab (bottom default)
-        block_mapping.put("blackstone slab", 6);       // blackstone_slab -> stone_brick_slab (bottom default)
-        block_mapping.put("purpur pillar", 2);         // purpur_pillar -> white_concrete
-        block_mapping.put("oak log", 3);               // oak_log -> oak_planks
-        block_mapping.put("red nether bricks", 4);     // red_nether_bricks -> stone_bricks
-        block_mapping.put("purpur block", 2);          // purpur_block -> white_concrete
-        block_mapping.put("birch planks", 3);          // birch_planks -> oak_planks
-        block_mapping.put("white wool", 2);            // white_wool -> white_concrete
-        block_mapping.put("stripped spruce wood", 3);  // stripped_spruce_wood -> oak_planks
-        block_mapping.put("crimson planks", 3);        // crimson_planks -> oak_planks
-        block_mapping.put("glass pane", 8);            // glass_pane -> glass
-        block_mapping.put("coarse dirt", 1);           // coarse_dirt -> dirt
-        block_mapping.put("ancient debris", 2);        // ancient_debris -> white_concrete
-        block_mapping.put("jungle planks", 3);         // jungle_planks -> oak_planks
-        block_mapping.put("bricks", 4);                // bricks -> stone_bricks
-        block_mapping.put("dark oak planks", 3);       // dark_oak_planks -> oak_planks
-        block_mapping.put("green concrete powder", 12);// green_concrete_powder -> green_concrete
-        block_mapping.put("andesite", 4);              // andesite -> stone_bricks
+        blockMapping.put("air", 0);
+        blockMapping.put("dirt", 1);
+        blockMapping.put("white concrete", 2);
+        blockMapping.put("oak planks", 3);
+        blockMapping.put("stone bricks", 4);
+        blockMapping.put("grass block", 5);
+        blockMapping.put("stone brick slab", 6);
+        blockMapping.put("glass", 8);
+        blockMapping.put("bookshelf", 10);
+        blockMapping.put("gravel", 11);
+        blockMapping.put("green concrete", 12);
+        blockMapping.put("oak slab", 13);
+        blockMapping.put("sandstone", 14);
+        blockMapping.put("cobblestone slab", 6);
+        blockMapping.put("end stone brick slab", 6);
+        blockMapping.put("spruce planks", 3);
+        blockMapping.put("chiseled quartz block", 2);
+        blockMapping.put("stone", 4);
+        blockMapping.put("end stone bricks", 4);
+        blockMapping.put("cobblestone", 4);
+        blockMapping.put("green wool", 5);
+        blockMapping.put("stripped oak wood", 3);
+        blockMapping.put("granite", 11);
+        blockMapping.put("smooth stone", 4);
+        blockMapping.put("brick slab", 6);
+        blockMapping.put("blackstone slab", 6);
+        blockMapping.put("purpur pillar", 2);
+        blockMapping.put("oak log", 3);
+        blockMapping.put("red nether bricks", 4);
+        blockMapping.put("purpur block", 2);
+        blockMapping.put("birch planks", 3);
+        blockMapping.put("white wool", 2);
+        blockMapping.put("stripped spruce wood", 3);
+        blockMapping.put("crimson planks", 3);
+        blockMapping.put("glass pane", 8);
+        blockMapping.put("coarse dirt", 1);
+        blockMapping.put("ancient debris", 2);
+        blockMapping.put("jungle planks", 3);
+        blockMapping.put("bricks", 4);
+        blockMapping.put("dark oak planks", 3);
+        blockMapping.put("green concrete powder", 12);
+        blockMapping.put("andesite", 4);
     }
 
     /** @brief Constructor
      */
-    public DiffusionMod(IEventBus modEventBus, ModContainer modContainer) {
+    public BuildWithBombs(IEventBus modEventBus, ModContainer modContainer) {
 
         infer = new Inference();
 
         NeoForge.EVENT_BUS.register(this);
-        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+
     }
 
     /** @brief This function handles the logic for when the player
@@ -365,7 +344,7 @@ public class DiffusionMod {
                             }
                         } else {
                             String name = block.getName().getString().toLowerCase();
-                            block_id = block_mapping.getOrDefault(name, 0);
+                            block_id = blockMapping.getOrDefault(name, 0);
                         }
 
                         infer.setContextBlock(x, y, z, block_id);
@@ -397,10 +376,15 @@ public class DiffusionMod {
             int minor = infer.getVersionMinor();
             int patch = infer.getVersionPatch();
 
-            printMessageToAllPlayers(level, "Denoise model version " + major + "." + minor + "." + patch + " init started");
+            printMessageToAllPlayers(level,"mod version (" + modMajor + "." + modMinor + "." + modPatch + ")");
+            printMessageToAllPlayers(level,"Diffusion engine version (" + major + "." + minor + "." + patch + ")");
 
-            infer.init();
-            startedInit = true;
+            if (major != modMajor || minor != modMinor || patch != modPatch) {
+                printMessageToAllPlayers(level,"ERROR: Mod and diffusion engine don't match! Init failed.");
+            } else {
+                infer.init();
+                startedInit = true;
+            }
         }
     }
 
@@ -437,4 +421,3 @@ public class DiffusionMod {
         return customName != null && customName.equals(diffusion_tnt_name);
     }
 }
-

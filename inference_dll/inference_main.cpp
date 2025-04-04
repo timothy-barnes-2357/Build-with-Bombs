@@ -339,6 +339,11 @@ int denoise_thread_main() {
 
     cudaStream_t stream;
     CUDA_CHECK(cudaStreamCreate(&stream));
+
+    /* Create the randomness generator */
+    std::random_device rd;  // Seed generator
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::normal_distribution<float> dist(0.0f, 1.0f);
    
     /* 
      * This is the main loop. Each loop iteration represents one fully denoised chunk.
@@ -370,19 +375,13 @@ int denoise_thread_main() {
         /*
          * We need to fill the initial x_t with normally distributed random values.
          */
-        {
-            std::random_device rd;  // Seed generator
-            std::mt19937 gen(rd()); // Mersenne Twister engine
-            std::normal_distribution<float> dist(0.0f, 1.0f);
-
-            for            (int w = 0; w < EMBEDDING_DIMENSIONS; w++) {
-                for        (int x = 0; x < CHUNK_WIDTH; x++) {
-                   for     (int y = 0; y < CHUNK_WIDTH; y++) {
-                       for (int z = 0; z < CHUNK_WIDTH; z++) {
-                           x_t[w][x][y][z] = dist(gen);
-                       }
+        for            (int w = 0; w < EMBEDDING_DIMENSIONS; w++) {
+            for        (int x = 0; x < CHUNK_WIDTH; x++) {
+               for     (int y = 0; y < CHUNK_WIDTH; y++) {
+                   for (int z = 0; z < CHUNK_WIDTH; z++) {
+                       x_t[w][x][y][z] = dist(gen);
                    }
-                }
+               }
             }
         }
 
@@ -449,7 +448,7 @@ static void denoise_thread_wrapper() {
  * @return 0 on success
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_init(void* unused1, void* unused2) {
 
     if (init_called) {
         global_last_error = INFER_ERROR_INVALID_OPERATION;
@@ -476,7 +475,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
  * @return 0 on false, 1 on true
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getInitComplete(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_getInitComplete(void* unused1, void* unused2) {
 
     return init_complete;
 }
@@ -492,7 +491,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getInitComplete(void* unused1, void*
  * @return: 0 on success
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void* unused2,
+int32_t Java_com_buildwithbombs_Inference_setContextBlock(void* unused1, void* unused2,
         int32_t x, int32_t y, int32_t z, int32_t block_id) {
 
     if (x < 0 || x >= CHUNK_WIDTH ||
@@ -520,7 +519,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
  * @brief startDiffusion 
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* unused2) {
     
     if (diffusion_running) {
         global_last_error = INFER_ERROR_INVALID_OPERATION;
@@ -545,7 +544,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* 
  * Timestep 0 is the fully denoised time.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, void* unused2) { 
+int32_t Java_com_buildwithbombs_Inference_getCurrentTimestep(void* unused1, void* unused2) { 
     return global_timestep;
 }
 
@@ -555,7 +554,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, vo
  * Timestep 0 is the fully denoised time.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2) { 
+int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2) { 
 
     {
         std::lock_guard<std::mutex> lock(mtx);
@@ -605,7 +604,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void*
  * @return: block_id of cached block.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, 
+int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, 
         int32_t x, int32_t y, int32_t z) {
 
     return cached_block_ids[x][y][z];
@@ -617,7 +616,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* un
  *        DLL exported API functions.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_getLastError(void* unused1, void* unused2) {
 
     int32_t last_error = global_last_error;
 
@@ -628,92 +627,22 @@ int32_t Java_tbarnes_diffusionmod_Inference_getLastError(void* unused1, void* un
 
 /** @brief Retrieve the major version integer.*/
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getVersionMajor(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_getVersionMajor(void* unused1, void* unused2) {
 
     return (int32_t)VERSION_MAJOR;
 }
 
 /** @brief Retrieve the minor version integer */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getVersionMinor(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_getVersionMinor(void* unused1, void* unused2) {
 
     return (int32_t)VERSION_MINOR;
 }
 
 /** @brief Retrieve the patch integer.*/
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getVersionPatch(void* unused1, void* unused2) {
+int32_t Java_com_buildwithbombs_Inference_getVersionPatch(void* unused1, void* unused2) {
 
     return (int32_t)VERSION_PATCH;
 }
-
-#if 0
-/* Main function to test the interface */
-int main() {
-
-    printf("Start of main");
-
-    int version = Java_tbarnes_diffusionmod_Inference_getVersion(NULL, NULL);
-    printf("Version %d.%d", version >> 16, version | 0xFFFF);
-
-    /*
-    int createJob();
-    int setContextBlock(int job, int x, int y, int z, int block_id);
-    int startDiffusion(int job);
-    int getCurrentTimestep(int job);
-    int cacheCurrentTimestepForReading(int job);
-    int readBlockFromCachedTimestep(int job, int x, int y, int z);
-    int destroyJob(int job);
-    */
-
-    int result = Java_tbarnes_diffusionmod_Inference_init(NULL, NULL);
-
-    //Java_tbarnes_diffusionmod_Inference
-
-    int job_id = Java_tbarnes_diffusionmod_Inference_createJob(NULL, NULL);
-
-    if (job_id == -1) {
-        printf("Failed to create job");
-        return 0;
-    }
-
-    result = Java_tbarnes_diffusionmod_Inference_setContextBlock(job_id, 0, 0, 0, 0);
-    
-    result = Java_tbarnes_diffusionmod_Inference_startDiffusion(job_id, 0, 0);
-
-    
-    int32_t last_step = 1000;
-
-    while (1) {
-
-        int32_t step = Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(job_id, NULL, NULL);
-
-        if (step < last_step) {
-            last_step = step;
-
-            float sum = 0.0f;
-
-            for (int x = 0; x < 14; x++) {
-                for (int y = 0; y < 14; y++) {
-                    for (int z = 0; z < 14; z++) {
-                        sum += (float) Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(job_id, NULL, NULL, x, y, z);
-
-                    }
-                }
-            }
-            
-            printf("step = %d, sum = %f\n", step, sum);
-            fflush(stdout);
-
-            if (step == 0) {
-                break;
-            }
-        }
-    }
-
-    result = Java_tbarnes_diffusionmod_Inference_cleanupJob(job_id);
-    
-    return 0;
-}
-#endif
 

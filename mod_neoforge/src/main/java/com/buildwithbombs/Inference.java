@@ -1,4 +1,4 @@
-package tbarnes.diffusionmod;
+package com.buildwithbombs;
 
 public class Inference {
 
