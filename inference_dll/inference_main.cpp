@@ -425,8 +425,8 @@ int denoise_thread_main() {
             }
 
             global_timestep = t;
-            /* TODO: I should copy out the x_t only once it's completed all N_U Iterations.
-             * Otherwise, I'll be copying out a partially in-painted sample */
+            /* TODO: I really should be copying out x_t only once it's completed all N_U Iterations.
+             * Otherwise, we're getting a partially in-painted sample */
         }
 
         diffusion_running = false;
@@ -455,6 +455,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
         global_last_error = INFER_ERROR_INVALID_OPERATION;
         return INFER_ERROR_INVALID_OPERATION;
     }
+
+    freopen("buildwithbombs.log", "w", stdout);
 
     global_denoise_thread = std::thread(denoise_thread_wrapper);
 

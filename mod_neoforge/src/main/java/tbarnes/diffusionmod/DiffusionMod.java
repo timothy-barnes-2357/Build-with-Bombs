@@ -61,7 +61,7 @@ public class DiffusionMod {
     public static final String MODID = "diffusionmod";
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    private static final Inference infer = new Inference();
+    private final Inference infer;
     
     private static final Queue<PrimedTnt> diffusionTnts = new LinkedList<>();
     private static final Component diffusion_tnt_name = Component.literal("Diffusion TNT");
@@ -184,6 +184,8 @@ public class DiffusionMod {
     /** @brief Constructor
      */
     public DiffusionMod(IEventBus modEventBus, ModContainer modContainer) {
+
+        infer = new Inference();
 
         NeoForge.EVENT_BUS.register(this);
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
