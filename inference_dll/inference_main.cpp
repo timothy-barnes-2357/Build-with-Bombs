@@ -22,6 +22,7 @@
 #include <thread>
 #include <condition_variable>
 #include <chrono>
+#include <vector>
 
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,22 @@
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
+
+#if defined(_MSC_VER)
+#define DLL_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__)
+#define DLL_EXPORT __attribute__((visibility("default")))
+#endif
+
+/* This macro is used to print CUDA errors at a specific line number and return
+ * a failed operation error code */
+#define CUDA_CHECK(expression) { \
+        cudaError_t err = (expression);\
+        if (err != cudaSuccess) { \
+            printf("CUDA error at line %d. (%s)\n", __LINE__, cudaGetErrorString(err)); \
+            return INFER_ERROR_FAILED_OPERATION; \
+        } \
+    }
 
 /*
  * Constants:
@@ -66,8 +83,8 @@ const int SIZE_X         = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * 
 const int SIZE_X_CONTEXT = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 const int SIZE_X_MASK    = sizeof(float) *                    1 * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 
-const char* onnx_file_path    = "ddim_single_update.onnx";
-const char* engine_cache_path = "ddim_single_update.trt";
+const char* onnx_file_path    = "single_update_0.1.0.onnx";
+const char* engine_cache_path = "single_update_0.1.0.trt";
 
 const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
     {-1.2866,  1.1751, -0.8010},
@@ -89,48 +106,40 @@ const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
 };
 
 /* 
+ * State specific to each worker thread
+ */
+struct WorkerThreadState {
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::thread thread;
+    sdd::atomic<bool> denoise_should_start;
+
+    std::atomic<bool> diffusion_running;
+    std::atomic<int32_t> timestep;
+
+    float x_t       [EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
+    float x_t_cached[EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
+    float x_context [EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
+    float x_mask                          [CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
+
+    /* Middle 14^3 blocks without surrounding context */
+    int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
+};
+
+/* 
  * Program wide global variables and buffers:
  */
-static nvinfer1::IExecutionContext* context;
-
-static std::mutex mtx;
-static std::condition_variable cv;
-static bool denoise_should_start;
-static std::thread global_denoise_thread;
+static nvinfer1::ICudaEngine* global_engine;
 
 static std::atomic<bool> init_called;
 static std::atomic<bool> init_complete;
-static std::atomic<bool> diffusion_running;
-static std::atomic<int32_t> global_timestep;
 static std::atomic<int32_t> global_last_error;
-
-static float x_t       [EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
-static float x_t_cached[EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
-static float x_context [EMBEDDING_DIMENSIONS][CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
-static float x_mask                          [CHUNK_WIDTH][CHUNK_WIDTH][CHUNK_WIDTH];
-
-/* Middle 14^3 blocks without surrounding context */
-static int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
+static WorkerThreadState **worker_threads;
+static int worker_count;
 
 static float alpha[N_T];
 static float beta[N_T];
 static float alpha_bar[N_T];
-
-#if defined(_MSC_VER)
-#define DLL_EXPORT __declspec(dllexport)
-#elif defined(__GNUC__)
-#define DLL_EXPORT __attribute__((visibility("default")))
-#endif
-
-/* This macro is used to print CUDA errors at a specific line number and return
- * a failed operation error code */
-#define CUDA_CHECK(expression) { \
-        cudaError_t err = (expression);\
-        if (err != cudaSuccess) { \
-            printf("CUDA error at line %d. (%s)\n", __LINE__, cudaGetErrorString(err)); \
-            return INFER_ERROR_FAILED_OPERATION; \
-        } \
-    }
 
 /**
  * @brief This is the main thread that's kicked off at the beginning for init.
@@ -140,7 +149,169 @@ static float alpha_bar[N_T];
  *
  * @return 0 on success, error code on failure.
  */
-int denoise_thread_main() {
+int denoise_thread_main(WorkerThreadState *state) {
+
+    /* 
+     * The TensorRT execution context is not thread safe,
+     * that's why each thread has its own context.
+     */
+    nvinfer1::IExecutionContext* context = global_engine->createExecutionContext();
+
+    if (!context) {
+        printf("Failed to create execution context\n");
+        return INFER_ERROR_FAILED_OPERATION;
+    }
+
+    /* 
+     * Allocate buffers for the inputs and outputs of the CUDA model
+     * Some of these buffers are relatively large, such as the x_t buffer,
+     * while others only contain a single floating point number.
+     *
+     * The tensor addresses must match the names on the Pytorch torch.onnx.export().
+     */
+    void *cuda_t, *cuda_x_t, *cuda_x_out, *cuda_x_context, *cuda_x_mask, *cuda_alpha_t, *cuda_alpha_bar_t, *cuda_beta_t;
+
+    CUDA_CHECK(cudaMalloc(&cuda_t,           sizeof(int32_t)));
+    CUDA_CHECK(cudaMalloc(&cuda_x_t,         SIZE_X)); // Input for each model step
+    CUDA_CHECK(cudaMalloc(&cuda_x_out,       SIZE_X)); // Output produced by the model
+    CUDA_CHECK(cudaMalloc(&cuda_x_context,   SIZE_X_CONTEXT));
+    CUDA_CHECK(cudaMalloc(&cuda_x_mask,      SIZE_X_MASK));
+    CUDA_CHECK(cudaMalloc(&cuda_alpha_t,     sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&cuda_beta_t,      sizeof(float)));
+
+    if (!context->setTensorAddress("t", cuda_t))                     { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("x_t", cuda_x_t))                 { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("x_out", cuda_x_out))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("context", cuda_x_context))       { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("mask", cuda_x_mask))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("alpha_t", cuda_alpha_t))         { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t)) { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!context->setTensorAddress("beta_t", cuda_beta_t))           { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+
+    init_complete = true;
+
+    cudaStream_t stream;
+    CUDA_CHECK(cudaStreamCreate(&stream));
+
+    /* Construct the randomness generator */
+    std::random_device rd;  
+    std::mt19937 gen(rd()); 
+    std::normal_distribution<float> dist(0.0f, 1.0f);
+   
+    /* 
+     * This is the main loop. Each loop iteration represents one fully denoised chunk.
+     * the start of the loop is blocked waiting on a start signal from startDiffusion()
+     */
+    for (;;) {
+
+        /* Wait until the mutex unlocks */
+        {
+            std::unique_lock<std::mutex> lock(state->mtx);
+
+            while (!state->denoise_should_start) {
+                state->cv.wait(lock);
+            }
+
+            state->denoise_should_start = false; // Auto reset so it blocks next loop iteration.
+        }
+
+        /* Copy the "context" and "mask" tensors to the GPU */
+        CUDA_CHECK(cudaMemcpy(cuda_x_context, state->x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(cuda_x_mask,    state->x_mask,    SIZE_X_MASK,    cudaMemcpyHostToDevice));
+
+        /* Zero-out the context and mask CPU buffers so they're clean
+         * for the next diffusion run. We don't need the CPU buffers anymore
+         * since context and mask are already on the GPU. */
+        memset(state->x_context, 0, sizeof(x_context));
+        memset(state->x_mask, 0, sizeof(x_mask));
+       
+        /*
+         * We need to fill the initial x_t with normally distributed random values.
+         */
+        for            (int w = 0; w < EMBEDDING_DIMENSIONS; w++) {
+            for        (int x = 0; x < CHUNK_WIDTH; x++) {
+               for     (int y = 0; y < CHUNK_WIDTH; y++) {
+                   for (int z = 0; z < CHUNK_WIDTH; z++) {
+                       state->x_t[w][x][y][z] = dist(gen);
+                   }
+               }
+            }
+        }
+
+        /* 
+         * These 'for' loops iterate over the denoising steps. The 't' steps represent the 
+         * primary denoising steps whiel the 'u' steps are used to blend the known and
+         * unknown regions during in-painting. 
+         */
+        for (int t = N_T - 1; t >= 0; t -= 1) {
+            for (int u = 0; u < N_U; u++) {
+
+                int load_index = t * N_U + u;
+
+                /* Copy the relevant input buffers for the TensorRT model */
+                CUDA_CHECK(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(cuda_x_t, state->x_t, SIZE_X, cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(cuda_alpha_t, &alpha[t], sizeof(float), cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar[t], sizeof(float), cudaMemcpyHostToDevice));
+                CUDA_CHECK(cudaMemcpy(cuda_beta_t, &beta[t], sizeof(float), cudaMemcpyHostToDevice));
+
+                /* Run the model asynchronously */
+                bool enqueue_succeeded = context->enqueueV3(stream);
+
+                if (!enqueue_succeeded) {
+                    printf("enqueueV3 failed\n");
+                    return INFER_ERROR_ENQUEUE;
+                }
+
+                /* Block waiting for the model to complete running */
+                CUDA_CHECK(cudaStreamSynchronize(stream));
+
+                cudaError_t result;
+                {
+                    std::lock_guard<std::mutex> lock(state->mtx);
+                    result = cudaMemcpy(state->x_t, cuda_x_out, SIZE_X, cudaMemcpyDeviceToHost);
+                }
+
+                CUDA_CHECK(result);
+            }
+
+            state->timestep = t;
+            /* TODO: I should copy out the x_t only once it's completed all N_U Iterations.
+             * Otherwise, I'm copying out a partially in-painted sample */
+        }
+
+        state->diffusion_running = false;
+    }
+
+    return 0; /* Never reached */
+}
+
+/** 
+ * @brief This small function allows us to use the return of the denoise_thread_main
+ * as the error code. This is a work-around because the C++ threading API doesn't 
+ * have a way (as far as I know) to get the return value of a thread.
+ */
+static void denoise_thread_wrapper(WorkerThreadState *state) {
+    global_last_error = denoise_thread_main(WorkerThreadState *state);
+}
+
+/** 
+ * @brief Initialize the interface.
+ * @return 0 on success
+ */
+extern "C" DLL_EXPORT
+int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2,
+        int worker_count) {
+
+    if (init_called) {
+        global_last_error = INFER_ERROR_INVALID_OPERATION;
+        return INFER_ERROR_INVALID_OPERATION;
+    }
+
+    /* 
+     * Init part 1. Create the engine so it's available to all threads 
+     */
 
     /*
      * Read the CUDA version 
@@ -169,7 +340,6 @@ int denoise_thread_main() {
 
     FILE* file = fopen(engine_cache_path, "rb");
 
-    nvinfer1::ICudaEngine* engine = nullptr;
     nvinfer1::IRuntime* runtime = nvinfer1::createInferRuntime(runtime_logger);
 
     if (!runtime) {
@@ -187,9 +357,9 @@ int denoise_thread_main() {
         fread(engine_data.data(), 1, engine_size, file);
         fclose(file);
 
-        engine = runtime->deserializeCudaEngine(engine_data.data(), engine_size);
+        global_engine = runtime->deserializeCudaEngine(engine_data.data(), engine_size);
 
-        if (!engine) {
+        if (!global_engine) {
             printf("Failed to deserialize CUDA engine from %s\n", engine_cache_path);
             return INFER_ERROR_DESERIALIZE_CUDA_ENGINE;
         }
@@ -249,36 +419,21 @@ int denoise_thread_main() {
         fclose(engine_out);
         printf("Saved serialized engine to %s\n", engine_cache_path);
  
-        engine = runtime->deserializeCudaEngine(plan->data(), plan->size());
-        if (!engine) {
+        global_engine = runtime->deserializeCudaEngine(plan->data(), plan->size());
+        if (!global_engine) {
             printf("Failed to deserialize CUDA engine\n");
             return INFER_ERROR_BUILDING_FROM_ONNX;
         }
-
-        delete parser;
-        delete config;
-        delete network;
-        delete builder;
     }
 
-    /* 
-     * Now that we have a TensorRT runtime, we need to setup the CUDA buffers to allow
-     * the denoising model to run.
-     */
-    context = engine->createExecutionContext();
-    if (!context) {
-        printf("Failed to create execution context\n");
-        return INFER_ERROR_FAILED_OPERATION;
-    }
-
-    printf("Number of layers in engine: %d\n", engine->getNbLayers());
-
+    printf("Number of layers in engine: %d\n", global_engine->getNbLayers());
     printf("Finished trt init\n");
 
     /* 
-     * Compute the denoising schedule for every timestep.
-     * This is equivalent to the Python code:
+     * Init part 2. Calculate the denoising schedule for every timestep.
+     * (These buffers are identical for all worker threads)
      *
+     * This is equivalent to the Python code:
      *  beta = torch.linspace(beta1**0.5, beta2**0.5, N_T) ** 2
      *  alpha = 1 - beta
      *  alpha_bar = torch.cumprod(alpha, dim=0)
@@ -308,161 +463,22 @@ int denoise_thread_main() {
         }
     }
 
-    /* 
-     * Allocate buffers for the inputs and outputs of the CUDA model
-     * Some of these buffers are relatively large, such as the x_t buffer,
-     * while others only contain a single floating point number.
-     *
-     * The tensor addresses must match the names on the Pytorch torch.onnx.export().
+    /*
+     * Init step 3: Create the pool of worker threads
      */
-    void *cuda_t, *cuda_x_t, *cuda_x_out, *cuda_x_context, *cuda_x_mask, *cuda_alpha_t, *cuda_alpha_bar_t, *cuda_beta_t;
+    worker_states = new WorkerThreadState*[worker_count];
 
-    CUDA_CHECK(cudaMalloc(&cuda_t,           sizeof(int32_t)));
-    CUDA_CHECK(cudaMalloc(&cuda_x_t,         SIZE_X)); // Input for each model step
-    CUDA_CHECK(cudaMalloc(&cuda_x_out,       SIZE_X)); // Output produced by the model
-    CUDA_CHECK(cudaMalloc(&cuda_x_context,   SIZE_X_CONTEXT));
-    CUDA_CHECK(cudaMalloc(&cuda_x_mask,      SIZE_X_MASK));
-    CUDA_CHECK(cudaMalloc(&cuda_alpha_t,     sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&cuda_beta_t,      sizeof(float)));
+    for (int i = 0; i < worker_count; i++) {
 
-    if (!context->setTensorAddress("t", cuda_t))                     { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("x_t", cuda_x_t))                 { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("x_out", cuda_x_out))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("context", cuda_x_context))       { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("mask", cuda_x_mask))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("alpha_t", cuda_alpha_t))         { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t)) { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("beta_t", cuda_beta_t))           { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+        worker_states[i] = new WorkerThreadState();
+        worker_states[i].thread = std::thread(denoise_thread_wrapper, worker_states[i]);
 
-    init_complete = true;
+        if (!worker_states[i].thread.joinable()) {
 
-    cudaStream_t stream;
-    CUDA_CHECK(cudaStreamCreate(&stream));
-   
-    /* 
-     * This is the main loop. Each loop iteration represents one fully denoised chunk.
-     * the start of the loop is blocked waiting on a start signal from startDiffusion()
-     */
-    for (;;) {
-
-        /* Wait until the mutex unlocks */
-        {
-            std::unique_lock<std::mutex> lock(mtx);
-
-            while (!denoise_should_start) {
-                cv.wait(lock);
-            }
-
-            denoise_should_start = false; // Auto reset so it blocks next loop iteration.
+            printf("Thread creation failed\n");
+            global_last_error = INFER_ERROR_INVALID_OPERATION;
+            return INFER_ERROR_FAILED_OPERATION;
         }
-
-        /* Copy the "context" and "mask" tensors to the GPU */
-        CUDA_CHECK(cudaMemcpy(cuda_x_context, x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(cuda_x_mask, x_mask, SIZE_X_MASK, cudaMemcpyHostToDevice));
-
-        /* Zero-out the context and mask CPU buffers so they're clean
-         * for the next diffusion run. We don't need the CPU buffers anymore
-         * since context and mask are already on the GPU. */
-        memset(x_context, 0, sizeof(x_context));
-        memset(x_mask, 0, sizeof(x_mask));
-       
-        /*
-         * We need to fill the initial x_t with normally distributed random values.
-         */
-        {
-            std::random_device rd;  // Seed generator
-            std::mt19937 gen(rd()); // Mersenne Twister engine
-            std::normal_distribution<float> dist(0.0f, 1.0f);
-
-            for            (int w = 0; w < EMBEDDING_DIMENSIONS; w++) {
-                for        (int x = 0; x < CHUNK_WIDTH; x++) {
-                   for     (int y = 0; y < CHUNK_WIDTH; y++) {
-                       for (int z = 0; z < CHUNK_WIDTH; z++) {
-                           x_t[w][x][y][z] = dist(gen);
-                       }
-                   }
-                }
-            }
-        }
-
-        /* 
-         * These 'for' loops iterate over the denoising steps. The 't' steps represent the 
-         * primary denoising steps whiel the 'u' steps are used to blend the known and
-         * unknown regions during in-painting. 
-         */
-        for (int t = N_T - 1; t >= 0; t -= 1) {
-            for (int u = 0; u < N_U; u++) {
-
-                int load_index = t * N_U + u;
-
-                /* Copy the relevant input buffers for the TensorRT model */
-                CUDA_CHECK(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(cuda_x_t, x_t, SIZE_X, cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(cuda_alpha_t, &alpha[t], sizeof(float), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(cuda_alpha_bar_t, &alpha_bar[t], sizeof(float), cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaMemcpy(cuda_beta_t, &beta[t], sizeof(float), cudaMemcpyHostToDevice));
-
-                /* Run the model asynchronously */
-                bool enqueue_succeeded = context->enqueueV3(stream);
-
-                if (!enqueue_succeeded) {
-                    printf("enqueueV3 failed\n");
-                    return INFER_ERROR_ENQUEUE;
-                }
-
-                /* Block waiting for the model to complete running */
-                CUDA_CHECK(cudaStreamSynchronize(stream));
-
-                cudaError_t result;
-
-                {
-                    std::lock_guard<std::mutex> lock(mtx);
-                    result = cudaMemcpy(x_t, cuda_x_out, SIZE_X, cudaMemcpyDeviceToHost);
-                }
-
-                CUDA_CHECK(result);
-            }
-
-            global_timestep = t;
-            /* TODO: I should copy out the x_t only once it's completed all N_U Iterations.
-             * Otherwise, I'll be copying out a partially in-painted sample */
-        }
-
-        diffusion_running = false;
-    }
-
-    return 0; /* Never reached */
-}
-
-/** 
- * @brief This small function allows us to use the return of the denoise_thread_main
- * as the error code. This is a work-around because the C++ threading API doesn't 
- * have a way (as far as I know) to get the return value of a thread.
- */
-static void denoise_thread_wrapper() {
-    global_last_error = denoise_thread_main();
-}
-
-/** 
- * @brief Initialize the interface.
- * @return 0 on success
- */
-extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_init(void* unused1, void* unused2) {
-
-    if (init_called) {
-        global_last_error = INFER_ERROR_INVALID_OPERATION;
-        return INFER_ERROR_INVALID_OPERATION;
-    }
-
-    global_denoise_thread = std::thread(denoise_thread_wrapper);
-
-    if (!global_denoise_thread.joinable()) {
-
-        printf("Thread creation failed\n");
-        global_last_error = INFER_ERROR_INVALID_OPERATION;
-        return INFER_ERROR_FAILED_OPERATION;
     }
 
     init_called = true;
@@ -491,7 +507,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_getInitComplete(void* unused1, void*
  */
 extern "C" DLL_EXPORT
 int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void* unused2,
-        int32_t x, int32_t y, int32_t z, int32_t block_id) {
+        int32_t job_id, int32_t x, int32_t y, int32_t z, int32_t block_id) {
 
     if (x < 0 || x >= CHUNK_WIDTH ||
         y < 0 || y >= CHUNK_WIDTH ||
@@ -518,7 +534,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_setContextBlock(void* unused1, void*
  * @brief startDiffusion 
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* unused2) {
+int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* unused2,
+        int32_t job_id) {
     
     if (diffusion_running) {
         global_last_error = INFER_ERROR_INVALID_OPERATION;
@@ -543,7 +560,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_startDiffusion(void* unused1, void* 
  * Timestep 0 is the fully denoised time.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, void* unused2) { 
+int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, void* unused2
+        int32_t job_id) { 
     return global_timestep;
 }
 
@@ -553,7 +571,8 @@ int32_t Java_tbarnes_diffusionmod_Inference_getCurrentTimestep(void* unused1, vo
  * Timestep 0 is the fully denoised time.
  */
 extern "C" DLL_EXPORT
-int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2) { 
+int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2,
+        int32_t job_id) { 
 
     {
         std::lock_guard<std::mutex> lock(mtx);
@@ -604,7 +623,7 @@ int32_t Java_tbarnes_diffusionmod_Inference_cacheCurrentTimestepForReading(void*
  */
 extern "C" DLL_EXPORT
 int32_t Java_tbarnes_diffusionmod_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, 
-        int32_t x, int32_t y, int32_t z) {
+        int32_t job_id, int32_t x, int32_t y, int32_t z) {
 
     return cached_block_ids[x][y][z];
 }
@@ -645,14 +664,11 @@ int32_t Java_tbarnes_diffusionmod_Inference_getVersionPatch(void* unused1, void*
     return (int32_t)VERSION_PATCH;
 }
 
-#if 0
+#if 1
 /* Main function to test the interface */
 int main() {
 
     printf("Start of main");
-
-    int version = Java_tbarnes_diffusionmod_Inference_getVersion(NULL, NULL);
-    printf("Version %d.%d", version >> 16, version | 0xFFFF);
 
     /*
     int createJob();
