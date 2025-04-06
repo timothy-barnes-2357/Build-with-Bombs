@@ -27,8 +27,8 @@ target_include_directories(inference PRIVATE
 
 # Library directories
 link_directories(
-    "${CUDA_LIB_PATH}"          # CUDA library path
-    "${TENSORRT_PATH}/lib"      # TensorRT library path
+    "${CUDA_LIB_PATH}"
+    "${TENSORRT_PATH}/lib"
 )
 
 # Link libraries
@@ -45,10 +45,6 @@ else()
         "${CUDA_LIB_PATH}/libcudart.so"
     )
 endif()
-
-
-# Remove pthread for Windows (only needed on Linux)
-# target_link_libraries(inference pthread)  # Uncomment if targeting Linux
 
 # Position-independent code
 set_target_properties(inference PROPERTIES POSITION_INDEPENDENT_CODE ON)
