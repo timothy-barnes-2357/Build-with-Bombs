@@ -10,6 +10,5 @@ TensorRT 10.5 GA for Linux x86_64 and CUDA 12.0 to 12.6 TAR Package
 3. Get the TensorRT folder out of the tar and move it to /usr/local
 sudo mv TensorRT-10.5.0.18 /usr/local/tensorrt-10.5
 
-4. build_linux.sh should now work (assuming CUDA is installed). The /usr/local/tensorrt folder needs to be in the LD_LIBRARY_PATH before running. The .onnx file needs to be in the same directory as the program.
-export LD_LIBRARY_PATH=/usr/local/tensorrt-10.5/lib:$LD_LIBRARY_PATH
-./inference
+4. Define env var (as Windows installer does) by adding the following to your ~/.bashrc and restart your CLI
+export CUDA_PATH=/usr/local/cuda-12.6
