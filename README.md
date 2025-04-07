@@ -10,7 +10,11 @@ Version requirements:
 - neoforge-21.1.77
 - Minecraft-1.21.1
 - TensorRT-10.5.0.18
+- CUDA 12.6
 
+TensorRT 10.5 requires a GPU with compute capability >= 7.5. See the [support matrix](https://docs.nvidia.com/deeplearning/tensorrt/archives/tensorrt-1050/support-matrix/index.html). Check this Wikipedia table to find the compute capability of your GPU: [Compute capability, GPU semiconductors and Nvidia GPU board products](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)
+
+## Social
 
 [buildwithbombs.com](buildwithbombs.com)
 
