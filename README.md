@@ -6,6 +6,12 @@ This repo contains two components:
 - "inference_dll" This contains a C++ DLL that sets up CUDA and calls TensorRT. It provides a number of exported functions for use by Java.
 - "mod_neoforge" This is the Java mod code that calls the inference.dll functions. It handles getting / setting blocks in Minecraft.
 
+Version requirements:
+- neoforge-21.1.77
+- Minecraft-1.21.1
+- TensorRT-10.5.0.18
+
+
 [buildwithbombs.com](buildwithbombs.com)
 
 [Discord to ask questions](https://discord.gg/2ym2tUV5E3)
