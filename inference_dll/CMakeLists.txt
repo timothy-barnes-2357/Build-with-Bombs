@@ -38,6 +38,8 @@ if(WIN32)
         "${TENSORRT_PATH}/lib/nvonnxparser_10.lib"
         "${CUDA_LIB_PATH}/cudart.lib"
     )
+    # Windows requires the __stdcall calling convention for JNI. "/Gz" is the flag for this.
+    target_compile_options(inference PRIVATE "/Gz")
 else()
     target_link_libraries(inference
         "${TENSORRT_PATH}/lib/libnvinfer.so"
