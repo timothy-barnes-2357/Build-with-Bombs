@@ -1,4 +1,4 @@
-# Build with Bombs
+# Build with Bombs 💣
 ## A Minecraft Java mod for procedural house generation by diffusion
 
 This repo contains two components:
@@ -13,12 +13,12 @@ Version requirements:
 - CUDA 12.6
 
 ## Hardware compatibility
-TensorRT 10.5 requires a GPU with compute capability >= 7.5. This means it requires an **RTX 2060** or better, a **GTX 1660 Ti** or better, an **MX550** or better, or a **Tesla T4** or better. See the [support matrix](https://docs.nvidia.com/deeplearning/tensorrt/archives/tensorrt-1050/support-matrix/index.html). Check this Wikipedia table to find the compute capability of your GPU: [Compute capability, GPU semiconductors and Nvidia GPU board products](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)
+TensorRT 10.5 requires an NVIDIA GPU with compute capability >= 7.5. This means it requires an **RTX 2060** or better, a **GTX 1660 Ti** or better, an **MX550** or better, or a **Tesla T4** or better. See the [support matrix](https://docs.nvidia.com/deeplearning/tensorrt/archives/tensorrt-1050/support-matrix/index.html). Check this Wikipedia table to find the compute capability of your GPU: [Compute capability, GPU semiconductors and Nvidia GPU board products](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)
 
 ## Social
 
-[buildwithbombs.com](buildwithbombs.com)
+[buildwithbombs.com](https://buildwithbombs.com)
 
 [Discord to ask questions](https://discord.gg/2ym2tUV5E3)
 
-Join this server to try it out: `mc.buildwithbombs.com`
+Join this server to try it out (no client-side mod required): `mc.buildwithbombs.com` 🧨
