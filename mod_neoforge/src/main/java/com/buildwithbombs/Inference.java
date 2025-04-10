@@ -1,4 +1,4 @@
-package tbarnes.diffusionmod;
+package com.buildwithbombs;
 
 public class Inference {
 
@@ -14,7 +14,7 @@ public class Inference {
     public native int getVersionMinor();
     public native int getVersionPatch();
 
-    static {
+    public Inference() {
         String workingDir = System.getProperty("user.dir");
         String osName = System.getProperty("os.name").toLowerCase();
         String libName;
@@ -29,6 +29,16 @@ public class Inference {
         }
 
         libPath = workingDir + java.io.File.separator + libName;
-        System.load(libPath);
+
+        try {
+            System.load(libPath);
+        } catch (Throwable t) {
+
+            String message =
+                    "The BuildwithBombs mod couldn't load its AI inference library. This needs to be installed for the mod to work. "
+                            + t.getClass().getSimpleName() + " - " + t.getMessage();
+
+            throw new RuntimeException(message, t);
+        }
     }
 }
