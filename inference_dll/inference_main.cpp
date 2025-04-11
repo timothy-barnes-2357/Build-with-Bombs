@@ -50,18 +50,12 @@
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
 
-#if defined(_MSC_VER)
-#define DLL_EXPORT __declspec(dllexport)
-#elif defined(__GNUC__)
-#define DLL_EXPORT __attribute__((visibility("default")))
-#endif
-
 /*
  * Constants:
  */
-const int VERSION_MAJOR = 0;
-const int VERSION_MINOR = 1;
-const int VERSION_PATCH = 0;
+const int32_t VERSION_MAJOR = 0;
+const int32_t VERSION_MINOR = 1;
+const int32_t VERSION_PATCH = 0;
 
 const int INFER_ERROR_INVALID_ARG             =  1;
 const int INFER_ERROR_FAILED_OPERATION        =  2;
@@ -77,6 +71,7 @@ const int INFER_ERROR_CUDA_RETURN             = 10;
 const int BLOCK_ID_COUNT = 16;
 const int EMBEDDING_DIMENSIONS = 3;
 const int CHUNK_WIDTH = 16;
+const int INPAINT_MARGIN = 1;
 
 const int N_U = 5;    /* Number of inpainting steps per timestep */
 const int N_T = 1000; /* Number of timesteps */
@@ -111,10 +106,12 @@ const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
  * State specific to each worker thread
  */
 struct WorkerThreadState {
-    bool is_assigned_to_job;
+    bool is_assigned_a_job;
 
-    std::mutex mtx;
-    std::condition_variable cv;
+    nvinfer1::IExecutionContext *context;
+
+    std::mutex mutex;
+    std::condition_variable conditional_variable;
     std::thread thread;
 
     std::atomic<bool> denoise_should_start;
@@ -127,30 +124,30 @@ struct WorkerThreadState {
 
 };
 
+namespace { /* This is the begin of an anonymous namespace for internal linkage */
+
 /* 
  * Program wide global variables and buffers:
  */
-static nvinfer1::ICudaEngine* global_engine;
+std::atomic<bool> init_started;
+std::atomic<bool> init_complete;
+std::atomic<int32_t> global_last_error;
+WorkerThreadState **worker_states;
+int global_worker_count;
 
-static std::atomic<bool> init_started;
-static std::atomic<bool> init_complete;
-static std::atomic<int32_t> global_last_error;
-static WorkerThreadState **worker_states;
-static int global_worker_count;
-
-static float alpha[N_T];
-static float beta[N_T];
-static float alpha_bar[N_T];
+float alpha[N_T];
+float beta[N_T];
+float alpha_bar[N_T];
 
 /* Middle 14^3 blocks without surrounding context */
-static int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
+int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
 
 /*
  * Static functions:
  */
 
-/** @brief Helper function for printing CUDA errors */
-static int cuda_check(cudaError_t err, int line) {
+/** @brief Helper function+macro for printing CUDA errors */
+int cuda_check(cudaError_t err, int line) {
     if (err != cudaSuccess) {
 
         printf("CUDA error at line %d. (%s)\n", line, cudaGetErrorString(err));
@@ -175,21 +172,10 @@ static int cuda_check(cudaError_t err, int line) {
  *
  * @return 0 on success, error code on failure.
  */
-static int thread_worker_main(WorkerThreadState *state) {
+int thread_worker_main(WorkerThreadState *state) {
 
     if (init_started) {
         return INFER_ERROR_INVALID_OPERATION;
-    }
-
-    /* 
-     * The TensorRT execution context is not thread safe,
-     * that's why each thread creates its own context.
-     */
-    nvinfer1::IExecutionContext* context = global_engine->createExecutionContext();
-
-    if (!context) {
-        printf("Failed to create execution context\n");
-        return INFER_ERROR_FAILED_OPERATION;
     }
 
     /* 
@@ -210,14 +196,14 @@ static int thread_worker_main(WorkerThreadState *state) {
     CUDA_CHECK(cudaMalloc(&cuda_alpha_bar_t, sizeof(float)));
     CUDA_CHECK(cudaMalloc(&cuda_beta_t,      sizeof(float)));
 
-    if (!context->setTensorAddress("t", cuda_t))                     { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("x_t", cuda_x_t))                 { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("x_out", cuda_x_out))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("context", cuda_x_context))       { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("mask", cuda_x_mask))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("alpha_t", cuda_alpha_t))         { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t)) { return INFER_ERROR_SET_TENSOR_ADDRESS; }
-    if (!context->setTensorAddress("beta_t", cuda_beta_t))           { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("t", cuda_t))                     { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("x_t", cuda_x_t))                 { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("x_out", cuda_x_out))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("context", cuda_x_context))       { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("mask", cuda_x_mask))             { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("alpha_t", cuda_alpha_t))         { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("alpha_bar_t", cuda_alpha_bar_t)) { return INFER_ERROR_SET_TENSOR_ADDRESS; }
+    if (!state->context->setTensorAddress("beta_t", cuda_beta_t))           { return INFER_ERROR_SET_TENSOR_ADDRESS; }
 
     cudaStream_t stream;
     CUDA_CHECK(cudaStreamCreate(&stream));
@@ -235,10 +221,10 @@ static int thread_worker_main(WorkerThreadState *state) {
 
         /* Wait until the mutex unlocks */
         {
-            std::unique_lock<std::mutex> lock(state->mtx);
+            std::unique_lock<std::mutex> lock(state->mutex);
 
             while (!state->denoise_should_start) {
-                state->cv.wait(lock);
+                state->conditional_variable.wait(lock);
             }
 
             state->denoise_should_start = false; // Auto reset so it blocks next loop iteration.
@@ -285,7 +271,7 @@ static int thread_worker_main(WorkerThreadState *state) {
                 CUDA_CHECK(cudaMemcpy(cuda_beta_t, &beta[t], sizeof(float), cudaMemcpyHostToDevice));
 
                 /* Run the model asynchronously */
-                bool enqueue_succeeded = context->enqueueV3(stream);
+                bool enqueue_succeeded = state->context->enqueueV3(stream);
 
                 if (!enqueue_succeeded) {
                     printf("enqueueV3 failed\n");
@@ -297,7 +283,7 @@ static int thread_worker_main(WorkerThreadState *state) {
 
                 cudaError_t result;
                 {
-                    std::lock_guard<std::mutex> lock(state->mtx);
+                    std::lock_guard<std::mutex> lock(state->mutex);
                     result = cudaMemcpy(state->x_t, cuda_x_out, SIZE_X, cudaMemcpyDeviceToHost);
                 }
 
@@ -320,7 +306,7 @@ static int thread_worker_main(WorkerThreadState *state) {
  * functions as the global error code. This is a workaround because the C++ threading API
  * doesn't have an elegant way (as far as I know) to get the return value of a terminated thread.
  */
-static void wrapper_thread_worker_main(WorkerThreadState* state) {
+void wrapper_thread_worker_main(WorkerThreadState* state) {
     global_last_error = thread_worker_main(state);
 }
 
@@ -331,7 +317,7 @@ static void wrapper_thread_worker_main(WorkerThreadState* state) {
  *
  * @return 0 on success, error code on failure.
  */
-static int thread_init_main() {
+int thread_init_main() {
     /* 
      * The full process for runtime export is:
      *  Pytorch (torch.onnx.export()) --> .ONNX (nvonnxparser) --> .TRT
@@ -373,6 +359,8 @@ static int thread_init_main() {
         return INFER_ERROR_CREATE_RUNTIME;
     }
 
+    nvinfer1::ICudaEngine *engine = nullptr;
+
     if (file) {
         fseek(file, 0, SEEK_END);
         size_t engine_size = ftell(file);
@@ -383,9 +371,9 @@ static int thread_init_main() {
         fread(engine_data.data(), 1, engine_size, file);
         fclose(file);
 
-        global_engine = runtime->deserializeCudaEngine(engine_data.data(), engine_size);
+        engine = runtime->deserializeCudaEngine(engine_data.data(), engine_size);
 
-        if (!global_engine) {
+        if (!engine) {
             printf("Failed to deserialize CUDA engine from %s\n", engine_cache_path);
             return INFER_ERROR_DESERIALIZE_CUDA_ENGINE;
         }
@@ -445,8 +433,8 @@ static int thread_init_main() {
         fclose(engine_out);
         printf("Saved serialized engine to %s\n", engine_cache_path);
  
-        global_engine = runtime->deserializeCudaEngine(plan->data(), plan->size());
-        if (!global_engine) {
+        engine = runtime->deserializeCudaEngine(plan->data(), plan->size());
+        if (!engine) {
             printf("Failed to deserialize CUDA engine\n");
             return INFER_ERROR_BUILDING_FROM_ONNX;
         }
@@ -455,7 +443,7 @@ static int thread_init_main() {
          * but I still need to find an elegant way to do it */
     }
 
-    printf("Number of layers in engine: %d\n", global_engine->getNbLayers());
+    printf("Number of layers in engine: %d\n", engine->getNbLayers());
     printf("Finished TensorRT init\n");
 
     /* 
@@ -502,6 +490,20 @@ static int thread_init_main() {
     for (int i = 0; i < global_worker_count; i++) {
 
         worker_states[i] = new WorkerThreadState();
+
+        /* 
+         * The TensorRT execution context is not thread safe,
+         * that's why each thread has its own context.
+         */
+        nvinfer1::IExecutionContext* context = engine->createExecutionContext();
+
+        if (!context) {
+            printf("Failed to create execution context\n");
+            return INFER_ERROR_FAILED_OPERATION;
+        }
+
+        worker_states[i]->context = context;
+
         std::thread worker = std::thread(wrapper_thread_worker_main, worker_states[i]);
 
         worker.detach(); /* Allow the thread to run beyond the lifetime of this scope */
@@ -514,7 +516,7 @@ static int thread_init_main() {
     return 0;
 }
 
-static void wrapper_thread_init() {
+void wrapper_thread_init() {
     global_last_error = thread_init_main();
 }
 
@@ -526,9 +528,7 @@ static void wrapper_thread_init() {
  * @brief Initialize TensorRT and all the worker threads.
  * @return 0 on success
  */
-extern "C" DLL_EXPORT 
-int32_t Java_com_buildwithbombs_Inference_startInit(void* unused1, void* unused2, 
-        int worker_count) {
+int32_t startInit(int worker_count) {
 
     int error_code = 0;
 
@@ -553,8 +553,7 @@ int32_t Java_com_buildwithbombs_Inference_startInit(void* unused1, void* unused2
  * @brief Check init complete
  * @return 0 if not complete, 1 if init is complete 
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getInitComplete(void* unused1, void* unused2) {
+int32_t getInitComplete() {
 
     return init_complete;
 }
@@ -562,17 +561,16 @@ int32_t Java_com_buildwithbombs_Inference_getInitComplete(void* unused1, void* u
 /** @brief Create a new job drawn from the existing thread pool.
  *  @return job_id on success (>= 0), -1 on failure to create job
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_createJob(void *unused1, void *unused2) {
+int32_t createJob() {
 
     int job_id = -1;
 
     if (init_complete) {
         for (int i = 0; i < global_worker_count; i++) {
 
-            if (!worker_states[i]->is_assigned_to_job) {
+            if (!worker_states[i]->is_assigned_a_job) {
 
-                worker_states[i]->is_assigned_to_job = true;
+                worker_states[i]->is_assigned_a_job = true;
                 job_id = i;
 
                 break;
@@ -586,9 +584,7 @@ int32_t Java_com_buildwithbombs_Inference_createJob(void *unused1, void *unused2
 /** @brief Destroy a job to free the worker thread.
  *  @return 0 on success, invalid_operation on failure.
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_destroyJob(void *unused1, void *unused2,
-        int32_t job_id) {
+int32_t destroyJob(int32_t job_id) {
 
     int32_t error_code = INFER_ERROR_INVALID_OPERATION;
 
@@ -599,8 +595,8 @@ int32_t Java_com_buildwithbombs_Inference_destroyJob(void *unused1, void *unused
 
             if (!state->diffusion_running) {
 
-                if (state->is_assigned_to_job) {
-                    state->is_assigned_to_job = false;
+                if (state->is_assigned_a_job) {
+                    state->is_assigned_a_job = false;
                     error_code = 0;
                 }
             }
@@ -624,9 +620,7 @@ int32_t Java_com_buildwithbombs_Inference_destroyJob(void *unused1, void *unused
  * @param: block_id 
  * @return: 0 on success
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_setContextBlock(void* unused1, void* unused2,
-        int32_t job_id, int32_t x, int32_t y, int32_t z, int32_t block_id) {
+int32_t setContextBlock(int32_t job_id, int32_t x, int32_t y, int32_t z, int32_t block_id) {
 
     if (!init_complete) {
         global_last_error = INFER_ERROR_INVALID_OPERATION;
@@ -659,9 +653,7 @@ int32_t Java_com_buildwithbombs_Inference_setContextBlock(void* unused1, void* u
  * @brief startDiffusion 
  * @return 0 on success, invalid_operation on failure
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* unused2,
-        int32_t job_id) {
+int32_t startDiffusion(int32_t job_id) {
 
     int error_code = INFER_ERROR_INVALID_OPERATION;
 
@@ -675,9 +667,9 @@ int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* un
             state->timestep = N_T;
             state->diffusion_running = true;
 
-            std::lock_guard<std::mutex> lock(state->mtx);
+            std::lock_guard<std::mutex> lock(state->mutex);
             state->denoise_should_start = true;
-            state->cv.notify_one();
+            state->conditional_variable.notify_one();
 
             error_code = 0;
         }
@@ -695,9 +687,7 @@ int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* un
  * @return Integer for cached timestep in range [0, 1000). Returns -1 on failure.
  * Timestep 0 is the fully denoised time.
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getCurrentTimestep(void* unused1, void* unused2,
-        int32_t job_id) { 
+int32_t getCurrentTimestep(int32_t job_id) { 
 
     int result = -1;
 
@@ -713,9 +703,7 @@ int32_t Java_com_buildwithbombs_Inference_getCurrentTimestep(void* unused1, void
  * @return Integer for cached timestep in range [0, 1000). Returns -1 on Failure.
  * Timestep 0 is the fully denoised time.
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2,
-        int32_t job_id) { 
+int32_t cacheCurrentTimestepForReading(int32_t job_id) { 
 
     /* This is a temporary buffer to store the worker's x_t buffer so we don't block
      * that worker while we're performing the unembedding process below. */
@@ -729,7 +717,7 @@ int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* u
     
     /* Lock before we copy x_t to the cache */
     {
-        std::lock_guard<std::mutex> lock(state->mtx);
+        std::lock_guard<std::mutex> lock(state->mutex);
         memcpy(timestep_cache, state->x_t, sizeof(state->x_t));
     }
 
@@ -737,9 +725,12 @@ int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* u
      * Since we only care about the index of the smallest element in each row of the output
      * 4096 x BLOCK_ID_COUNT matrix, we don't need to actually store the entire matrix. */
 
-    for (int x = 1; x < 15; x++) {
-        for (int y = 1; y < 15; y++) {
-            for (int z = 1; z < 15; z++) {
+    const int start = INPAINT_MARGIN;
+    const int end = CHUNK_WIDTH - INPAINT_MARGIN;
+
+    for (int x = start; x < end; x++) {
+        for (int y = start; y < end; y++) {
+            for (int z = start; z < end; z++) {
 
                 float min_distance = FLT_MAX;
                 int closest_id = 0;
@@ -758,7 +749,7 @@ int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* u
                     }
                 }
 
-                cached_block_ids[x-1][y-1][z-1] = closest_id;
+                cached_block_ids[x-INPAINT_MARGIN][y-INPAINT_MARGIN][z-INPAINT_MARGIN] = closest_id;
             }
         }
     }
@@ -775,9 +766,7 @@ int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* u
  * @param: z 
  * @return: block_id of cached block, -1 on failure.
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, 
-        int32_t job_id, int32_t x, int32_t y, int32_t z) {
+int32_t readBlockFromCachedTimestep(int32_t job_id, int32_t x, int32_t y, int32_t z) {
 
     return cached_block_ids[x][y][z];
 }
@@ -786,8 +775,7 @@ int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unus
  * @brief Retrieve the last error from either the diffusion thread or one of the
  *        DLL exported API functions.
  */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getLastError(void* unused1, void* unused2) {
+int32_t getLastError() {
 
     int32_t last_error = global_last_error;
 
@@ -796,109 +784,154 @@ int32_t Java_com_buildwithbombs_Inference_getLastError(void* unused1, void* unus
     return last_error;
 }
 
-/** @brief Retrieve the major version integer.*/
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getVersionMajor(void* unused1, void* unused2) {
 
-    return (int32_t)VERSION_MAJOR;
-}
+} /* This is the end of the internal linkage namespace. Functions below this are
+   * exported from the DLL*/
 
-/** @brief Retrieve the minor version integer */
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getVersionMinor(void* unused1, void* unused2) {
+/* 
+ * JNI Export:
+ *
+ * The code below exports the DLL functions with the correct name and arguments
+ * for the Java Native Interface to use. Each function start with the full path and
+ * name of the Java module (Java_com_buildwithbombs_Inference) and also take pointers
+ * as the first two arguments (JNIEnv *, jobject), but we're not using either pointer
+ * since integer input to the function and integer return suffices for us. This has the
+ * added benefit that we don't need to build headers with Java, we can just directly use
+ * these exports. 
+ *
+ * On Windows, the JNI requires the __stdcall calling convention. This requires using 
+ * the "/Gz" flag in Visual Studio. Linux doesn't require this since it's the default CDECL.
+ */
+#if defined(_MSC_VER)
+#define DLL_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__)
+#define DLL_EXPORT __attribute__((visibility("default")))
+#endif
 
-    return (int32_t)VERSION_MINOR;
-}
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_startInit(void* unused1, void* unused2, int32_t worker_count) { return startInit(worker_count); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getInitComplete(void* unused1, void* unused2) { return getInitComplete(); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_createJob(void* unused1, void* unused2) { return createJob(); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_destroyJob(void* unused1, void* unused2, int32_t job_id) { return destroyJob(job_id); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_setContextBlock(void* unused1, void* unused2, int32_t job_id, int32_t x, int32_t y, int32_t z, int32_t block_id) { return setContextBlock(job_id, x, y, z, block_id); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* unused2, int32_t job_id) { return startDiffusion(job_id); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getCurrentTimestep(void* unused1, void* unused2, int32_t job_id) { return getCurrentTimestep(job_id); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2, int32_t job_id) { return cacheCurrentTimestepForReading(job_id); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, int32_t job_id, int32_t x, int32_t y, int32_t z) { return readBlockFromCachedTimestep(job_id, x, y, z); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getLastError(void* unused1, void* unused2) { return getLastError(); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionMajor(void* unused1, void* unused2) { return VERSION_MAJOR; }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionMinor(void* unused1, void* unused2) { return VERSION_MINOR; }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionPatch(void* unused1, void* unused2) { return VERSION_PATCH; }
 
-/** @brief Retrieve the patch integer.*/
-extern "C" DLL_EXPORT
-int32_t Java_com_buildwithbombs_Inference_getVersionPatch(void* unused1, void* unused2) {
-
-    return (int32_t)VERSION_PATCH;
-}
-
-
-#if 1
-/* Main function to test the interface */
+/*
+ * Finally, below is some brief code I use to test the above functions.
+ * It creates multiple diffusion jobs running simultaneously.
+ */
+#if 0
 int main() {
 
-    printf("Start of main");
+    /* In the nomenclature of this file, "workers" are persistent threads that
+     * take on "jobs" which are tasks to fully diffuse a chunk). There can be more
+     * workers than jobs, but there can never be more jobs than workers 
+     */
 
-    /*
-    int startInit();
-    int getInitComplete()
-    int createJob();
-    int setContextBlock(int job, int x, int y, int z, int block_id);
-    int startDiffusion(int job);
-    int getCurrentTimestep(int job);
-    int cacheCurrentTimestepForReading(int job);
-    int readBlockFromCachedTimestep(int job, int x, int y, int z);
-    int destroyJob(int job);
-    */
+    const int job_count = 2; /* How many active jobs we're creating */
+    int32_t jobs[job_count]; /* ID for reach job we create */
+    int32_t last_job_step[job_count]; /* timestep for each job */
 
-#define CHECK_ERROR(expression) \
-    if (expression) { \
-        printf("Error at line (%d)\n", __LINE__); \
-        return 0; \
+    if(startInit(job_count) != 0) {
+        printf("startInit failed\n");
+    } else {
+        printf("Init started\n");
     }
 
-    int worker_count = 1;
-
-    int result = Java_com_buildwithbombs_Inference_startInit(NULL, NULL, worker_count);
-    CHECK_ERROR(result);
-
+    /* Wait until initialization is complete.
+     * This can take awhile if we need to build a new .trt engine */
     for (;;) {
-        int32_t init_complete = Java_com_buildwithbombs_Inference_getInitComplete(NULL, NULL);
+        int32_t init_complete = getInitComplete();
 
         if (init_complete == 1) {
+            printf("Init complete\n");
             break;
         }
     }
 
-    int32_t job1 = Java_com_buildwithbombs_Inference_createJob(NULL, NULL);
+    /* Create all our jobs */
+    for (int i = 0; i < job_count; i++) {
+        jobs[i] = createJob();
+    }
 
-    result = Java_com_buildwithbombs_Inference_setContextBlock(NULL, NULL,
-        job1, 0, 0, 0, 1);
-    CHECK_ERROR(result);
+    /* The first job will contain all dirt in the context.
+     * The other jobs contexts default to all air*/
+    for (int x = 0; x < CHUNK_WIDTH; x++) {
+        for (int y = 0; y < CHUNK_WIDTH; y++) {
+            for (int z = 0; z < CHUNK_WIDTH; z++) {
 
-    result = Java_com_buildwithbombs_Inference_startDiffusion(NULL, NULL,
-        job1);
-    CHECK_ERROR(result);
-    
-    int32_t last_step = 1000;
+                const int dirt_id = 1;
 
-    while (1) {
-
-        int32_t step = Java_com_buildwithbombs_Inference_getCurrentTimestep(NULL, NULL,
-                job1);
-
-        if (step < last_step) {
-            last_step = step;
-
-            float sum = 0.0f;
-
-            for (int x = 0; x < 14; x++) {
-                for (int y = 0; y < 14; y++) {
-                    for (int z = 0; z < 14; z++) {
-                        sum += (float) Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(NULL, NULL, 
-                                job1, x, y, z);
-                    }
+                if (setContextBlock(jobs[0], x, y, z, dirt_id) != 0) {
+                    printf("setContextBlock failed\n");
                 }
-            }
-            
-            printf("step = %d, sum = %f\n", step, sum);
-            fflush(stdout);
-
-            if (step == 0) {
-                break;
             }
         }
     }
 
-    result = Java_com_buildwithbombs_Inference_destroyJob(NULL, NULL,
-            job1);
-    CHECK_ERROR(result);
+    for (int i = 0; i < job_count; i++) {
+        last_job_step[i] = 1000;
+
+        if (startDiffusion(jobs[i]) != 0) {
+            printf("startDiffusion (for job %d) failed\n", i);
+        }
+    }
+   
+    /* Collect and print all 1k timesteps for all active jobs */
+    for (;;) {
+
+        int jobs_finished = 0;
+
+        for (int i = 0; i < job_count; i++) {
+
+            int32_t step = getCurrentTimestep(jobs[i]);
+
+            if (step < last_job_step[i]) {
+                last_job_step[i] = step;
+
+                if(cacheCurrentTimestepForReading(jobs[i]) == -1) {
+                    printf("cacheCurrentTimestep failed\n");
+                }
+
+                int32_t sum = 0.0f;
+                const int width = CHUNK_WIDTH - (INPAINT_MARGIN * 2);
+
+                for (int x = 0; x < width; x++) {
+                    for (int y = 0; y < width; y++) {
+                        for (int z = 0; z < width; z++) {
+                            sum += readBlockFromCachedTimestep(jobs[i], x, y, z);
+                        }
+                    }
+                }
+                
+                printf("job: %d, step = %d, sum = %f\n", i, last_job_step[i], sum);
+                fflush(stdout);
+
+                if (last_job_step[i] == 0) {
+                    jobs_finished++;
+                }
+            }
+        }
+
+        if (jobs_finished == job_count) {
+            break;
+        }
+    }
+
+    for (int i = 0; i < job_count; i++) {
+
+        if(destroyJob(jobs[i]) != 0) {
+            printf("Destroy job failed\n");
+        }
+    }
     
     return 0;
 }
 #endif
+
