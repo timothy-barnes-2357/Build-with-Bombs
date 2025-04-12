@@ -55,7 +55,7 @@
  */
 const int32_t VERSION_MAJOR = 0;
 const int32_t VERSION_MINOR = 1;
-const int32_t VERSION_PATCH = 0;
+const int32_t VERSION_PATCH = 1;
 
 const int INFER_ERROR_INVALID_ARG             =  1;
 const int INFER_ERROR_FAILED_OPERATION        =  2;
@@ -766,7 +766,7 @@ int32_t cacheCurrentTimestepForReading(int32_t job_id) {
  * @param: z 
  * @return: block_id of cached block, -1 on failure.
  */
-int32_t readBlockFromCachedTimestep(int32_t job_id, int32_t x, int32_t y, int32_t z) {
+int32_t readBlockFromCachedTimestep(int32_t x, int32_t y, int32_t z) {
 
     return cached_block_ids[x][y][z];
 }
@@ -816,7 +816,7 @@ extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_setContextBlock(
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_startDiffusion(void* unused1, void* unused2, int32_t job_id) { return startDiffusion(job_id); }
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getCurrentTimestep(void* unused1, void* unused2, int32_t job_id) { return getCurrentTimestep(job_id); }
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_cacheCurrentTimestepForReading(void* unused1, void* unused2, int32_t job_id) { return cacheCurrentTimestepForReading(job_id); }
-extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, int32_t job_id, int32_t x, int32_t y, int32_t z) { return readBlockFromCachedTimestep(job_id, x, y, z); }
+extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_readBlockFromCachedTimestep(void* unused1, void* unused2, int32_t x, int32_t y, int32_t z) { return readBlockFromCachedTimestep(x, y, z); }
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getLastError(void* unused1, void* unused2) { return getLastError(); }
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionMajor(void* unused1, void* unused2) { return VERSION_MAJOR; }
 extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionMinor(void* unused1, void* unused2) { return VERSION_MINOR; }
@@ -905,7 +905,7 @@ int main() {
                 for (int x = 0; x < width; x++) {
                     for (int y = 0; y < width; y++) {
                         for (int z = 0; z < width; z++) {
-                            sum += readBlockFromCachedTimestep(jobs[i], x, y, z);
+                            sum += readBlockFromCachedTimestep(x, y, z);
                         }
                     }
                 }
