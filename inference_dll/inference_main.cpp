@@ -231,7 +231,6 @@ int thread_worker_main(WorkerThreadState *state) {
         }
 
         /* Copy the "context" and "mask" tensors to the GPU */
-        CUDA_CHECK(cudaMemcpy(cuda_x_context, state->x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(cuda_x_mask,    state->x_mask,    SIZE_X_MASK,    cudaMemcpyHostToDevice));
 
         /* Zero-out the context and mask CPU buffers so they're clean
@@ -264,6 +263,7 @@ int thread_worker_main(WorkerThreadState *state) {
                 int load_index = t * N_U + u;
 
                 /* Copy the relevant input buffers for the TensorRT model */
+                CUDA_CHECK(cudaMemcpy(cuda_x_context, state->x_context, SIZE_X_CONTEXT, cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_t, &t, sizeof(int32_t), cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_x_t, state->x_t, SIZE_X, cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(cuda_alpha_t, &alpha[t], sizeof(float), cudaMemcpyHostToDevice));

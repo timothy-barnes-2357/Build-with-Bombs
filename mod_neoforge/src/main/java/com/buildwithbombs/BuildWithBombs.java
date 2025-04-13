@@ -56,8 +56,7 @@ public class BuildWithBombs {
     }
 
     private static final Set<WorkerJob> workerJobs = new HashSet<>();
-    
-    //private static final Queue<PrimedTnt> diffusionTnts = new LinkedList<>();
+
     private static final Component diffusionTntName = Component.literal("Diffusion TNT");
 
     // Arbitrarily large fuse so we can handle the explosion manually.
@@ -177,6 +176,11 @@ public class BuildWithBombs {
         NeoForge.EVENT_BUS.register(this);
     }
 
+    private void SetDiffusionContext(BlockPos position, Level level) {
+
+
+    }
+
     /** @brief This function handles the logic for when the player
      * places one of the diffusion TNT blocks
      */
@@ -228,6 +232,48 @@ public class BuildWithBombs {
         }
     }
 
+    private void updateDiffusionContext(WorkerJob job, Level level) {
+        /*
+         * Context setup
+         * Each Minecraft block needs to be converted to a block_id
+         * integer that the inference DLL knows how to interpret.
+         */
+        for (int x = 0; x < chunkWidth; x++) {
+            for (int y = 0; y < chunkWidth; y++) {
+                for (int z = 0; z < chunkWidth; z++) {
+
+                    BlockPos position = new BlockPos(
+                            job.position.getX() + x,
+                            job.position.getY() + y,
+                            job.position.getZ() + z);
+
+                    BlockState blockState = level.getBlockState(position);
+                    Block block = blockState.getBlock();
+
+                    int blockId = 0;
+
+                    if (block == Blocks.STONE_BRICK_SLAB) {
+
+                        SlabType slabType = blockState.getValue(SlabBlock.TYPE);
+
+                        if (slabType == SlabType.BOTTOM) {
+                            blockId = 6; // stone_brick_slab[type=bottom]
+                        } else if (slabType == SlabType.TOP) {
+                            blockId = 7; // stone_brick_slab[type=top]
+                        } else if (slabType == SlabType.DOUBLE) {
+                            blockId = 9; // stone_brick_slab[type=double]
+                        }
+                    } else {
+                        String name = block.getName().getString().toLowerCase();
+                        blockId = blockMapping.getOrDefault(name, 0);
+                    }
+
+                    infer.setContextBlock(job.id, x, y, z, blockId);
+                }
+            }
+        }
+    }
+
     /** @brief This is the main logic for the mod. It keeps track of which
      * TNT blocks have been placed and triggers the diffusion process.
      */
@@ -259,21 +305,16 @@ public class BuildWithBombs {
             printMessageToAllPlayers(level, "Denoise model error (" + lastError + ")");
         }
 
-        /* 
-         * Handle the logic for diffusion setups. 
-         */
-
-        /*
-         * This iterates over the active diffusion TNT entities in the world
-         * and determines which one(s) should trigger the next diffusion event.
-         */
-
         // This is an annoying process of converting the hashmap into a list so we can
         // shuffle it to get N random keys. We're doing this to allow all players to
         // have an equal chance of having their diffusion TNT blocks assigned to a job.
         List<Map.Entry<UUID, Queue<PrimedTnt>>> shuffled = new ArrayList<>(playerTntQueue.entrySet());
         Collections.shuffle(shuffled);
 
+        /*
+         * This iterates over the active diffusion TNT entities in the world
+         * and determines which one(s) should trigger the next diffusion event.
+         */
         for (Map.Entry<UUID, Queue<PrimedTnt>> entry : shuffled) {
 
             UUID playerId = entry.getKey();
@@ -298,6 +339,7 @@ public class BuildWithBombs {
                 // We now have a valid job ID so we can remove the tnt block from
                 // the player's queue and start diffusion.
                 tntQueue.poll(); // Remove this tnt from the player's queue
+                tnt.discard();   // remove this tnt from the level
 
                 // Remove the player queue object itself if it's empty. 
                 if (tntQueue.isEmpty()) {
@@ -357,6 +399,8 @@ public class BuildWithBombs {
                             }
                         }
                     }
+
+                    updateDiffusionContext(job, level);
                 }
 
                 if (timestep == 0) {
@@ -365,45 +409,7 @@ public class BuildWithBombs {
                 }
 
             } else { // if(initComplete)
-                /*
-                 * Context setup
-                 * Each Minecraft block needs to be converted to a block_id
-                 * integer that the inference DLL knows how to interpret.
-                 */
-                for (int x = 0; x < chunkWidth; x++) {
-                    for (int y = 0; y < chunkWidth; y++) {
-                        for (int z = 0; z < chunkWidth; z++) {
-
-                            BlockPos position = new BlockPos(
-                                    job.position.getX() + x,
-                                    job.position.getY() + y,
-                                    job.position.getZ() + z);
-
-                            BlockState blockState = level.getBlockState(position);
-                            Block block = blockState.getBlock();
-
-                            int blockId = 0;
-
-                            if (block == Blocks.STONE_BRICK_SLAB) {
-
-                                SlabType slabType = blockState.getValue(SlabBlock.TYPE);
-
-                                if (slabType == SlabType.BOTTOM) {
-                                    blockId = 6; // stone_brick_slab[type=bottom]
-                                } else if (slabType == SlabType.TOP) {
-                                    blockId = 7; // stone_brick_slab[type=top]
-                                } else if (slabType == SlabType.DOUBLE) {
-                                    blockId = 9; // stone_brick_slab[type=double]
-                                }
-                            } else {
-                                String name = block.getName().getString().toLowerCase();
-                                blockId = blockMapping.getOrDefault(name, 0);
-                            }
-
-                            infer.setContextBlock(job.id, x, y, z, blockId);
-                        }
-                    }
-                }
+                updateDiffusionContext(job, level);
 
                 /* Tell the inference DLL that we're starting diffusion */
                 infer.startDiffusion(job.id);
