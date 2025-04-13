@@ -37,7 +37,7 @@ public class BuildWithBombs {
     private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
     private static final int modMinor = 1;
     private static final int modPatch = 1;
-    private static final int workerCount = 2;
+    private static final int workerCount = 10;
     private static final int chunkWidth = 16;
 
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -52,7 +52,7 @@ public class BuildWithBombs {
         int id;
         int previousTimestep;
         BlockPos position;
-        Boolean initComplete;
+        boolean initComplete;
     }
 
     private static final Set<WorkerJob> workerJobs = new HashSet<>();
@@ -64,15 +64,8 @@ public class BuildWithBombs {
     private static final int maxFuse = 1000000; 
     private static final int fuseLength = 80;
 
-    private static BlockPos userClickedPos = new BlockPos(0, 0, 0);
-    private static Boolean isDenoising = false;
-    private static int denoiseCount = 0;
-
-    private static Boolean startedInit = false;
-    private static Boolean completedInit = false;
-    private static Boolean startedDiffusion = false;
-    private static int previousTimestep = 1000;
-
+    private static boolean startedInit = false;
+    private static boolean completedInit = false;
     private static final BlockState[] BLOCK_STATES = new BlockState[] {
             // 0 - minecraft:air
             Blocks.AIR.defaultBlockState(),
@@ -290,7 +283,7 @@ public class BuildWithBombs {
                                               // a job is available yet.
 
             int fuseTriggerPoint = maxFuse - fuseLength;
-            Boolean fuseHasRunOut = tnt.getFuse() < fuseTriggerPoint;
+            boolean fuseHasRunOut = tnt.getFuse() < fuseTriggerPoint;
 
             if (fuseHasRunOut) {
                 int jobId = infer.createJob();
@@ -343,6 +336,8 @@ public class BuildWithBombs {
                 int timestep = infer.getCurrentTimestep(job.id);
 
                 if (timestep < job.previousTimestep) {
+                    job.previousTimestep = timestep;
+
                     infer.cacheCurrentTimestepForReading(job.id);
 
                     for (int x = 0; x < 14; x++) {
@@ -352,9 +347,9 @@ public class BuildWithBombs {
                                 int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
                                 BlockPos position = new BlockPos(
-                                        userClickedPos.getX() + x,
-                                        userClickedPos.getY() + y,
-                                        userClickedPos.getZ() + z);
+                                        job.position.getX() + x,
+                                        job.position.getY() + y,
+                                        job.position.getZ() + z);
 
                                 BlockState state = BLOCK_STATES[new_id];
 
