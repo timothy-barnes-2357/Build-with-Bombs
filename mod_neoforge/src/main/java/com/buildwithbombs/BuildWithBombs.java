@@ -39,8 +39,8 @@ public class BuildWithBombs {
     private static final int modMinor = 1;
     private static final int modPatch = 1;
     private static final int chunkWidth = 16;
-    private static final int workerCount = 8;
-    private static final int maxDiffusionUpdatesPerTick = 2;
+    private static final int workerCount = 16;
+    private static final int maxDiffusionUpdatesPerTick = 8;
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -384,36 +384,39 @@ public class BuildWithBombs {
                  */
                 int timestep = infer.getCurrentTimestep(job.id);
 
-                if (timestep < job.previousTimestep) {
-                    job.previousTimestep = timestep;
+                // Minecraft server behavior or bug:
+                // We could supposedly only call level.setBlockAndUpdate when we actually
+                // have new data by checking that the current timestep has changed, but in 
+                // practice this makes the performance worse instead of better (even though
+                // we would be doing less processing in the mod). My hypothesis is that if 
+                // I don't call setBlockAndUpdate on a server tick, then the server decides
+                // to update the path finding or do other time-intensive tasks. All I know
+                // is that the server performance is worse if I don't update these blocks
+                // every server tick while the diffusion process is running.
+                // (Note written 4-15-2025)
 
-                    infer.cacheCurrentTimestepForReading(job.id);
+                infer.cacheCurrentTimestepForReading(job.id);
 
-                    for (int x = 0; x < 14; x++) {
-                        for (int y = 0; y < 14; y++) {
-                            for (int z = 0; z < 14; z++) {
+                for (int x = 0; x < 14; x++) {
+                    for (int y = 0; y < 14; y++) {
+                        for (int z = 0; z < 14; z++) {
 
-                                int new_id = infer.readBlockFromCachedTimestep(x, y, z);
+                            int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
-                                BlockPos position = new BlockPos(
-                                        job.position.getX() + x,
-                                        job.position.getY() + y,
-                                        job.position.getZ() + z);
+                            BlockPos position = new BlockPos(
+                                    job.position.getX() + x,
+                                    job.position.getY() + y,
+                                    job.position.getZ() + z);
 
-                                BlockState state = BLOCK_STATES[new_id];
+                            BlockState state = BLOCK_STATES[new_id];
 
-                                //LevelChunk levelchunk = level.getChunkAt(position);
-                                //BlockState blockstate = levelchunk.setBlockState(position, state, false);
-                                //level.sendBlockUpdated(position, state, state, 0);
-
-                                level.setBlockAndUpdate(position, state);
-                            }
+                            level.setBlockAndUpdate(position, state);
                         }
                     }
-
-                    totalDiffusionUpdates += 1;
-                    //updateDiffusionContext(job, level);
                 }
+
+                totalDiffusionUpdates += 1;
+                //updateDiffusionContext(job, level);
 
                 if (timestep == 0) {
                     infer.destroyJob(job.id);
