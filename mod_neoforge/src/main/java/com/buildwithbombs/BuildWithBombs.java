@@ -1,5 +1,6 @@
 package com.buildwithbombs;
 
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -37,8 +38,9 @@ public class BuildWithBombs {
     private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
     private static final int modMinor = 1;
     private static final int modPatch = 1;
-    private static final int workerCount = 10;
     private static final int chunkWidth = 16;
+    private static final int workerCount = 8;
+    private static final int maxDiffusionUpdatesPerTick = 2;
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -174,11 +176,6 @@ public class BuildWithBombs {
         infer = new Inference();
 
         NeoForge.EVENT_BUS.register(this);
-    }
-
-    private void SetDiffusionContext(BlockPos position, Level level) {
-
-
     }
 
     /** @brief This function handles the logic for when the player
@@ -362,12 +359,22 @@ public class BuildWithBombs {
             }
         }
 
+        int totalDiffusionUpdates = 0;
+
+        // We shuffle the jobs as well to allow reach job to have an equal chance of
+        // running per tick if there are more than maxDiffusionUpdatesPerTick number of
+        // jobs queued.
+        List<WorkerJob> shuffledJobs = new ArrayList<>(workerJobs);
+        Collections.shuffle(shuffledJobs);
+
+        Iterator<WorkerJob> iterator = shuffledJobs.iterator();
+
         //
         // Iterate over the active jobs
         //
-        Iterator<WorkerJob> iterator = workerJobs.iterator();
+        while (iterator.hasNext() &&
+                totalDiffusionUpdates < maxDiffusionUpdatesPerTick) {
 
-        while (iterator.hasNext()) {
             WorkerJob job = iterator.next();
 
             if (job.initComplete) {
@@ -395,17 +402,22 @@ public class BuildWithBombs {
 
                                 BlockState state = BLOCK_STATES[new_id];
 
+                                //LevelChunk levelchunk = level.getChunkAt(position);
+                                //BlockState blockstate = levelchunk.setBlockState(position, state, false);
+                                //level.sendBlockUpdated(position, state, state, 0);
+
                                 level.setBlockAndUpdate(position, state);
                             }
                         }
                     }
 
-                    updateDiffusionContext(job, level);
+                    totalDiffusionUpdates += 1;
+                    //updateDiffusionContext(job, level);
                 }
 
                 if (timestep == 0) {
                     infer.destroyJob(job.id);
-                    iterator.remove();
+                    workerJobs.remove(job);
                 }
 
             } else { // if(initComplete)
