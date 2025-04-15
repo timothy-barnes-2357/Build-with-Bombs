@@ -158,7 +158,7 @@ int cuda_check(cudaError_t err, int line) {
 }
 
 #define CUDA_CHECK(result) { \
-    int err = cuda_check(result, __LINE__); \
+    int err = cuda_check((result), __LINE__); \
     if (result != 0) { \
         return err; \
     } \
@@ -800,7 +800,7 @@ int32_t getLastError() {
  * these exports. 
  *
  * On Windows, the JNI requires the __stdcall calling convention. This requires using 
- * the "/Gz" flag in Visual Studio. Linux doesn't require this since it's the default CDECL.
+ * the "/Gz" flag in MSVC. Linux doesn't require this since it's the default CDECL.
  */
 #if defined(_MSC_VER)
 #define DLL_EXPORT __declspec(dllexport)
@@ -825,6 +825,7 @@ extern "C" DLL_EXPORT int32_t Java_com_buildwithbombs_Inference_getVersionPatch(
 /*
  * Finally, below is some brief code I use to test the above functions.
  * It creates multiple diffusion jobs running simultaneously.
+ * Uncomment if building as a .exe and not .dll
  */
 #if 0
 int main() {
