@@ -1,5 +1,6 @@
 package com.buildwithbombs;
 
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -35,29 +36,37 @@ public class BuildWithBombs {
     public static final String MODID = "buildwithbombs";
 
     private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
-    private static final int modMinor = 1;
+    private static final int modMinor = 2;
     private static final int modPatch = 0;
+    private static final int chunkWidth = 16;
+    private static final int workerCount = 16;
+    private static final int maxDiffusionUpdatesPerTick = 8;
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private final Inference infer;
-    
-    private static final Queue<PrimedTnt> diffusionTnts = new LinkedList<>();
-    private static final Component diffusion_tnt_name = Component.literal("Diffusion TNT");
 
-    // Arbitrarily large fuse so we can handle the explosion manually in 
-    private static final int maxFuse = 1000; 
+    // This is a hashmap relating each of the player's UUIDs to their queue of primed TNT
+    // blocks.
+    private static final Map<UUID, Queue<PrimedTnt>> playerTntQueue = new HashMap<>();
+
+    private class WorkerJob {
+        int id;
+        int previousTimestep;
+        BlockPos position;
+        boolean initComplete;
+    }
+
+    private static final Set<WorkerJob> workerJobs = new HashSet<>();
+
+    private static final Component diffusionTntName = Component.literal("Diffusion TNT");
+
+    // Arbitrarily large fuse so we can handle the explosion manually.
+    private static final int maxFuse = 1000000; 
     private static final int fuseLength = 80;
 
-    private static BlockPos userClickedPos = new BlockPos(0, 0, 0);
-    private static Boolean isDenoising = false;
-    private static int denoiseCount = 0;
-
-    private static Boolean startedInit = false;
-    private static Boolean completedInit = false;
-    private static Boolean startedDiffusion = false;
-    private static int previousTimestep = 1000;
-
+    private static boolean startedInit = false;
+    private static boolean completedInit = false;
     private static final BlockState[] BLOCK_STATES = new BlockState[] {
             // 0 - minecraft:air
             Blocks.AIR.defaultBlockState(),
@@ -167,7 +176,6 @@ public class BuildWithBombs {
         infer = new Inference();
 
         NeoForge.EVENT_BUS.register(this);
-
     }
 
     /** @brief This function handles the logic for when the player
@@ -202,7 +210,64 @@ public class BuildWithBombs {
             tnt.setFuse(maxFuse);
 
             level.addFreshEntity(tnt);
-            diffusionTnts.add(tnt);
+
+            //
+            // Add the new diffusion block to the player's queue
+            //
+            // TODO: Handle logic for limiting the player queue to N items
+            UUID playerId = player.getUUID();
+
+            Queue<PrimedTnt> queue = playerTntQueue.get(playerId);
+
+            // If this player has nothing queued, create the queue first
+            if (queue == null) {
+                queue = new LinkedList<>();
+                playerTntQueue.put(playerId, queue);
+            }
+
+            queue.add(tnt);
+        }
+    }
+
+    private void updateDiffusionContext(WorkerJob job, Level level) {
+        /*
+         * Context setup
+         * Each Minecraft block needs to be converted to a block_id
+         * integer that the inference DLL knows how to interpret.
+         */
+        for (int x = 0; x < chunkWidth; x++) {
+            for (int y = 0; y < chunkWidth; y++) {
+                for (int z = 0; z < chunkWidth; z++) {
+
+                    BlockPos position = new BlockPos(
+                            job.position.getX() + x,
+                            job.position.getY() + y,
+                            job.position.getZ() + z);
+
+                    BlockState blockState = level.getBlockState(position);
+                    Block block = blockState.getBlock();
+
+                    int blockId = 0;
+
+                    if (block == Blocks.STONE_BRICK_SLAB) {
+
+                        SlabType slabType = blockState.getValue(SlabBlock.TYPE);
+
+                        if (slabType == SlabType.BOTTOM) {
+                            blockId = 6; // stone_brick_slab[type=bottom]
+                        } else if (slabType == SlabType.TOP) {
+                            blockId = 7; // stone_brick_slab[type=top]
+                        } else if (slabType == SlabType.DOUBLE) {
+                            blockId = 9; // stone_brick_slab[type=double]
+                        }
+                    } else {
+                        String name = block.getName().getString().toLowerCase();
+                        blockId = blockMapping.getOrDefault(name, 0);
+                    }
+
+                    infer.setContextBlock(job.id, x, y, z, blockId);
+                }
+            }
         }
     }
 
@@ -228,7 +293,7 @@ public class BuildWithBombs {
             }
         }
 
-        /* 
+        /* ArrayList
          * Handle error reporting from the DLL 
          */
         int lastError = infer.getLastError();
@@ -237,18 +302,100 @@ public class BuildWithBombs {
             printMessageToAllPlayers(level, "Denoise model error (" + lastError + ")");
         }
 
-        /* 
-         * Handle the logic for diffusion setups. 
-         */
-        if (isDenoising) {
-            /*
-             * Logic for receiving new denoised blocks 
-             * for each timestep.
-             */
-            int timestep = infer.getCurrentTimestep();
+        // This is an annoying process of converting the hashmap into a list so we can
+        // shuffle it to get N random keys. We're doing this to allow all players to
+        // have an equal chance of having their diffusion TNT blocks assigned to a job.
+        List<Map.Entry<UUID, Queue<PrimedTnt>>> shuffled = new ArrayList<>(playerTntQueue.entrySet());
+        Collections.shuffle(shuffled);
 
-            if (timestep < previousTimestep) {
-                infer.cacheCurrentTimestepForReading();
+        /*
+         * This iterates over the active diffusion TNT entities in the world
+         * and determines which one(s) should trigger the next diffusion event.
+         */
+        for (Map.Entry<UUID, Queue<PrimedTnt>> entry : shuffled) {
+
+            UUID playerId = entry.getKey();
+            Queue<PrimedTnt> tntQueue = entry.getValue();
+
+            PrimedTnt tnt = tntQueue.peek(); // Just peek, not poll, since we don't know if
+                                              // a job is available yet.
+
+            int fuseTriggerPoint = maxFuse - fuseLength;
+            boolean fuseHasRunOut = tnt.getFuse() < fuseTriggerPoint;
+
+            if (fuseHasRunOut) {
+                int jobId = infer.createJob();
+
+                if (jobId == -1) {
+                    // There's nothing to do. There are no workers available so we can't
+                    // create another job at the moment. At this point, we break so on
+                    // another tick hopefully a worker becomes available.
+                    break;
+                }
+
+                // We now have a valid job ID so we can remove the tnt block from
+                // the player's queue and start diffusion.
+                tntQueue.poll(); // Remove this tnt from the player's queue
+                tnt.discard();   // remove this tnt from the level
+
+                // Remove the player queue object itself if it's empty. 
+                if (tntQueue.isEmpty()) {
+                    playerTntQueue.remove(playerId);
+                }
+
+                //
+                // Create a new worker job
+                //
+                WorkerJob job = new WorkerJob();
+
+                job.id = jobId;
+                job.previousTimestep = 1000;
+                job.position = new BlockPos(
+                            tnt.getBlockX() - 7,
+                            tnt.getBlockY() - 1,
+                            tnt.getBlockZ() - 7);
+
+                workerJobs.add(job);
+            }
+        }
+
+        int totalDiffusionUpdates = 0;
+
+        // We shuffle the jobs as well to allow reach job to have an equal chance of
+        // running per tick if there are more than maxDiffusionUpdatesPerTick number of
+        // jobs queued.
+        List<WorkerJob> shuffledJobs = new ArrayList<>(workerJobs);
+        Collections.shuffle(shuffledJobs);
+
+        Iterator<WorkerJob> iterator = shuffledJobs.iterator();
+
+        //
+        // Iterate over the active jobs
+        //
+        while (iterator.hasNext() &&
+                totalDiffusionUpdates < maxDiffusionUpdatesPerTick) {
+
+            WorkerJob job = iterator.next();
+
+            if (job.initComplete) {
+                /*
+                 * Logic for receiving new denoised blocks 
+                 * for each timestep.
+                 */
+                int timestep = infer.getCurrentTimestep(job.id);
+
+                // Minecraft server behavior or bug:
+                // We could supposedly only call level.setBlockAndUpdate when we actually
+                // have new data by checking that the current timestep has changed, but in 
+                // practice this makes the performance worse instead of better (even though
+                // we would be doing less processing in the mod). My hypothesis is that if 
+                // I don't call setBlockAndUpdate on a server tick, then the server decides
+                // to update the path finding or do other time-intensive tasks. All I know
+                // is that the server performance is worse if I don't update these blocks
+                // every server tick while the diffusion process is running.
+                // (Note written 4-15-2025)
+
+                infer.cacheCurrentTimestepForReading(job.id);
 
                 for (int x = 0; x < 14; x++) {
                     for (int y = 0; y < 14; y++) {
@@ -257,9 +404,9 @@ public class BuildWithBombs {
                             int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
                             BlockPos position = new BlockPos(
-                                    userClickedPos.getX() + x,
-                                    userClickedPos.getY() + y,
-                                    userClickedPos.getZ() + z);
+                                    job.position.getX() + x,
+                                    job.position.getY() + y,
+                                    job.position.getZ() + z);
 
                             BlockState state = BLOCK_STATES[new_id];
 
@@ -267,94 +414,22 @@ public class BuildWithBombs {
                         }
                     }
                 }
-            }
 
-            if (timestep == 0) {
-                isDenoising = false;
-                startedDiffusion = false;
-                previousTimestep = 1000; // Timesteps start at 1000
-            }
-        }
+                totalDiffusionUpdates += 1;
+                //updateDiffusionContext(job, level);
 
-        /*
-         * This iterates over the active diffusion TNT entities in the world
-         * and determines which one(s) should trigger the next diffusion event.
-         */
-        Iterator<PrimedTnt> iterator = diffusionTnts.iterator();
-        Boolean startDiffusion = false;
-
-        while (iterator.hasNext()) {
-            PrimedTnt tnt = iterator.next();
-            BlockPos pos = tnt.getOnPos();
-
-            int fuseTriggerPoint = maxFuse - fuseLength;
-
-            if (tnt.getFuse() < fuseTriggerPoint) {
-                if (!isDenoising) {
-
-                    /* Center the new diffusion on the TNT block */
-                    userClickedPos = new BlockPos(
-                            tnt.getBlockX() - 7,
-                            tnt.getBlockY() - 1,
-                            tnt.getBlockZ() - 7);
-
-                    iterator.remove();
-                    tnt.discard();
-
-                    isDenoising = true;
-                    startDiffusion = true;
-
-                    break; // Break from the while loop since we only start one at a time.
-                } else {
-                    tnt.setFuse(fuseTriggerPoint);
+                if (timestep == 0) {
+                    infer.destroyJob(job.id);
+                    workerJobs.remove(job);
                 }
+
+            } else { // if(initComplete)
+                updateDiffusionContext(job, level);
+
+                /* Tell the inference DLL that we're starting diffusion */
+                infer.startDiffusion(job.id);
+                job.initComplete = true;
             }
-        }
-
-        if (startDiffusion) {
-            /*
-             * Context setup
-             * Each Minecraft block needs to be converted to a block_id
-             * integer that the inference DLL knows how to interpret.
-             */
-            for (int x = 0; x < 16; x++) {
-                for (int y = 0; y < 16; y++) {
-                    for (int z = 0; z < 16; z++) {
-
-                        BlockPos position = new BlockPos(
-                                userClickedPos.getX() + x,
-                                userClickedPos.getY() + y,
-                                userClickedPos.getZ() + z);
-
-                        BlockState blockState = level.getBlockState(position);
-                        Block block = blockState.getBlock();
-
-                        int block_id = 0;
-
-                        if (block == Blocks.STONE_BRICK_SLAB) {
-
-                            SlabType slabType = blockState.getValue(SlabBlock.TYPE);
-
-                            if (slabType == SlabType.BOTTOM) {
-                                block_id = 6; // stone_brick_slab[type=bottom]
-                            } else if (slabType == SlabType.TOP) {
-                                block_id = 7; // stone_brick_slab[type=top]
-                            } else if (slabType == SlabType.DOUBLE) {
-                                block_id = 9; // stone_brick_slab[type=double]
-                            }
-                        } else {
-                            String name = block.getName().getString().toLowerCase();
-                            block_id = blockMapping.getOrDefault(name, 0);
-                        }
-
-                        infer.setContextBlock(x, y, z, block_id);
-                    }
-                }
-            }
-
-            /* Tell the inference DLL that we're starting diffusion */
-            infer.startDiffusion();
-            startedDiffusion = true;
         }
     }
 
@@ -382,7 +457,7 @@ public class BuildWithBombs {
             if (major != modMajor || minor != modMinor || patch != modPatch) {
                 printMessageToAllPlayers(level,"ERROR: Mod and diffusion engine don't match! Init failed.");
             } else {
-                infer.init();
+                infer.startInit(workerCount);
                 startedInit = true;
             }
         }
@@ -410,7 +485,7 @@ public class BuildWithBombs {
         ItemStack tnt = new ItemStack(Items.TNT);
 
         Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
-        tnt.set(CUSTOM_NAME_SUPPLIER, diffusion_tnt_name);
+        tnt.set(CUSTOM_NAME_SUPPLIER, diffusionTntName);
 
         return tnt;
     }
@@ -418,6 +493,7 @@ public class BuildWithBombs {
     private boolean isDiffusionTnt(ItemStack stack) {
 
         Component customName = stack.get(DataComponents.CUSTOM_NAME);
-        return customName != null && customName.equals(diffusion_tnt_name);
+        return customName != null && customName.equals(diffusionTntName);
     }
 }
+

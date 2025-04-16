@@ -2,12 +2,14 @@ package com.buildwithbombs;
 
 public class Inference {
 
-    public native int init();
+    public native int startInit(int worker_count);
     public native int getInitComplete();
-    public native int setContextBlock(int x, int y, int z, int block_id);
-    public native int startDiffusion();
-    public native int getCurrentTimestep();
-    public native int cacheCurrentTimestepForReading();
+    public native int createJob();
+    public native int destroyJob(int job_id);
+    public native int setContextBlock(int job_id, int x, int y, int z, int block_id);
+    public native int startDiffusion(int job_id);
+    public native int getCurrentTimestep(int job_id);
+    public native int cacheCurrentTimestepForReading(int job_id);
     public native int readBlockFromCachedTimestep(int x, int y, int z);
     public native int getLastError();
     public native int getVersionMajor();
@@ -18,7 +20,6 @@ public class Inference {
         String workingDir = System.getProperty("user.dir");
         String osName = System.getProperty("os.name").toLowerCase();
         String libName;
-        String libPath;
 
         if (osName.contains("win")) {
             libName = "inference.dll";
@@ -28,7 +29,7 @@ public class Inference {
             throw new UnsupportedOperationException("Unsupported operating system: " + osName);
         }
 
-        libPath = workingDir + java.io.File.separator + libName;
+        String libPath = workingDir + java.io.File.separator + libName;
 
         try {
             System.load(libPath);
