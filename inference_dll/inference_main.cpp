@@ -80,8 +80,8 @@ const int SIZE_X         = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * 
 const int SIZE_X_CONTEXT = sizeof(float) * EMBEDDING_DIMENSIONS * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 const int SIZE_X_MASK    = sizeof(float) *                    1 * CHUNK_WIDTH * CHUNK_WIDTH * CHUNK_WIDTH;
 
-const char* onnx_file_path    = "diffusion_step_0.1.1.onnx";
-const char* engine_cache_path = "diffusion_step_0.1.1.trt";
+const char* onnx_file_path    = "ddim_single_update.onnx";
+const char* engine_cache_path = "ddim_single_update.trt";
 
 const float block_id_embeddings[BLOCK_ID_COUNT][EMBEDDING_DIMENSIONS] = {
     {-1.2866,  1.1751, -0.8010},
