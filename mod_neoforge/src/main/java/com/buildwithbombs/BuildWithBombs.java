@@ -36,8 +36,8 @@ public class BuildWithBombs {
     public static final String MODID = "buildwithbombs";
 
     private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
-    private static final int modMinor = 1;
-    private static final int modPatch = 1;
+    private static final int modMinor = 2;
+    private static final int modPatch = 0;
     private static final int chunkWidth = 16;
     private static final int workerCount = 16;
     private static final int maxDiffusionUpdatesPerTick = 8;
