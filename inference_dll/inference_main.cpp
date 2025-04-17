@@ -330,7 +330,7 @@ int thread_init_main() {
      */
 
     /* Allow logging printf to file */
-    //freopen("buildwithbombs.log", "w", stdout);
+    freopen("buildwithbombs.log", "w", stdout);
 
     /*
      * Read the CUDA version 
