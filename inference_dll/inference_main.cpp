@@ -55,7 +55,7 @@
  */
 const int32_t VERSION_MAJOR = 0;
 const int32_t VERSION_MINOR = 2;
-const int32_t VERSION_PATCH = 0;
+const int32_t VERSION_PATCH = 1;
 
 const int INFER_ERROR_INVALID_ARG             =  1;
 const int INFER_ERROR_FAILED_OPERATION        =  2;
@@ -330,7 +330,7 @@ int thread_init_main() {
      */
 
     /* Allow logging printf to file */
-    //freopen("buildwithbombs.log", "w", stdout);
+    freopen("buildwithbombs.log", "w", stdout);
 
     /*
      * Read the CUDA version 

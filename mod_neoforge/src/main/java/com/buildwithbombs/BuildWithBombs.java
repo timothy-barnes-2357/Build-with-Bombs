@@ -1,6 +1,8 @@
 package com.buildwithbombs;
 
-import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -37,26 +39,31 @@ public class BuildWithBombs {
 
     private static final int modMajor = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
     private static final int modMinor = 2;
-    private static final int modPatch = 0;
+    private static final int modPatch = 1;
     private static final int chunkWidth = 16;
-    private static final int workerCount = 16;
-    private static final int maxDiffusionUpdatesPerTick = 8;
+    private static final int workerCount = 8;
+    private static final int maxPlayerTntQueue = 16;
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
     private final Inference infer;
 
-    // This is a hashmap relating each of the player's UUIDs to their queue of primed TNT
-    // blocks.
-    private static final Map<UUID, Queue<PrimedTnt>> playerTntQueue = new HashMap<>();
-
     private class WorkerJob {
         int id;
         int previousTimestep;
-        BlockPos position;
         boolean initComplete;
+        BlockPos position;
+        Level level; // Which level (overworld, ender, the end) this job should run in.
     }
 
+    private class TntQueueItem {
+        PrimedTnt tnt;
+        Level level;
+    }
+
+    // This is a hashmap relating each of the player's UUIDs to their queue of primed TNT
+    // blocks.
+    private static final Map<UUID, Queue<TntQueueItem>> playersTntQueues = new HashMap<>();
     private static final Set<WorkerJob> workerJobs = new HashSet<>();
 
     private static final Component diffusionTntName = Component.literal("Diffusion TNT");
@@ -211,25 +218,36 @@ public class BuildWithBombs {
 
             level.addFreshEntity(tnt);
 
+            // 
+            // Add this new TNT to the player's queue
             //
-            // Add the new diffusion block to the player's queue
-            //
-            // TODO: Handle logic for limiting the player queue to N items
             UUID playerId = player.getUUID();
 
-            Queue<PrimedTnt> queue = playerTntQueue.get(playerId);
+            Queue<TntQueueItem> queue = playersTntQueues.get(playerId);
 
             // If this player has nothing queued, create the queue first
             if (queue == null) {
                 queue = new LinkedList<>();
-                playerTntQueue.put(playerId, queue);
+                playersTntQueues.put(playerId, queue);
             }
 
-            queue.add(tnt);
+            // Limit the size of each player queue to maxPlayerTntQueue.
+            if (queue.size() < maxPlayerTntQueue) {
+
+                TntQueueItem item = new TntQueueItem();
+                item.tnt = tnt;
+                item.level = level;
+
+                queue.add(item);
+            } else {
+                tnt.discard();
+                String error = "Player max TNT queue is " + maxPlayerTntQueue;
+                player.sendSystemMessage(Component.literal(error));
+            }
         }
     }
 
-    private void updateDiffusionContext(WorkerJob job, Level level) {
+    private void updateDiffusionContext(WorkerJob job) {
         /*
          * Context setup
          * Each Minecraft block needs to be converted to a block_id
@@ -244,7 +262,7 @@ public class BuildWithBombs {
                             job.position.getY() + y,
                             job.position.getZ() + z);
 
-                    BlockState blockState = level.getBlockState(position);
+                    BlockState blockState = job.level.getBlockState(position);
                     Block block = blockState.getBlock();
 
                     int blockId = 0;
@@ -271,57 +289,51 @@ public class BuildWithBombs {
         }
     }
 
-    /** @brief This is the main logic for the mod. It keeps track of which
-     * TNT blocks have been placed and triggers the diffusion process.
+    /** @brief Unlike onLevelTick, this function runs once per tick 
+     *        instead of once per tick per dimension.
      */
-    @SubscribeEvent
-    public void onLevelTick(LevelTickEvent.Post event) {
-
-        Level level = event.getLevel();
-
-        if (level.isClientSide()) return;
-
+    private void runOncePerTick(MinecraftServer server) {
         /*
-         * Handle checking for initialization complete 
+         * Handle checking for initialization complete
          */
         if (startedInit && !completedInit) {
             int initComplete = infer.getInitComplete();
 
             if (initComplete == 1) {
                 completedInit = true;
-                printMessageToAllPlayers(level, "Denoise model init complete");
+                printMessageToAllPlayersInAllDimensions(server, "Denoise model init complete");
             }
         }
 
         /* ArrayList
-         * Handle error reporting from the DLL 
+         * Handle error reporting from the DLL
          */
         int lastError = infer.getLastError();
 
         if (lastError != 0) {
-            printMessageToAllPlayers(level, "Denoise model error (" + lastError + ")");
+            printMessageToAllPlayersInAllDimensions(server, "Denoise model error (" + lastError + ")");
         }
 
-        // This is an annoying process of converting the hashmap into a list so we can
+        // This is an annoying process of converting the hashmap to a list so we can
         // shuffle it to get N random keys. We're doing this to allow all players to
-        // have an equal chance of having their diffusion TNT blocks assigned to a job.
-        List<Map.Entry<UUID, Queue<PrimedTnt>>> shuffled = new ArrayList<>(playerTntQueue.entrySet());
+        // an equal chance of having their diffusion TNT blocks assigned to a job.
+        List<Map.Entry<UUID, Queue<TntQueueItem>>> shuffled = new ArrayList<>(playersTntQueues.entrySet());
         Collections.shuffle(shuffled);
 
         /*
          * This iterates over the active diffusion TNT entities in the world
          * and determines which one(s) should trigger the next diffusion event.
          */
-        for (Map.Entry<UUID, Queue<PrimedTnt>> entry : shuffled) {
+        for (Map.Entry<UUID, Queue<TntQueueItem>> entry : shuffled) {
 
             UUID playerId = entry.getKey();
-            Queue<PrimedTnt> tntQueue = entry.getValue();
+            Queue<TntQueueItem> tntQueue = entry.getValue();
 
-            PrimedTnt tnt = tntQueue.peek(); // Just peek, not poll, since we don't know if
-                                              // a job is available yet.
+            TntQueueItem queueItem = tntQueue.peek(); // Just peek, not poll, since we don't know if
+            // a job is available yet.
 
             int fuseTriggerPoint = maxFuse - fuseLength;
-            boolean fuseHasRunOut = tnt.getFuse() < fuseTriggerPoint;
+            boolean fuseHasRunOut = queueItem.tnt.getFuse() < fuseTriggerPoint;
 
             if (fuseHasRunOut) {
                 int jobId = infer.createJob();
@@ -333,16 +345,6 @@ public class BuildWithBombs {
                     break;
                 }
 
-                // We now have a valid job ID so we can remove the tnt block from
-                // the player's queue and start diffusion.
-                tntQueue.poll(); // Remove this tnt from the player's queue
-                tnt.discard();   // remove this tnt from the level
-
-                // Remove the player queue object itself if it's empty. 
-                if (tntQueue.isEmpty()) {
-                    playerTntQueue.remove(playerId);
-                }
-
                 //
                 // Create a new worker job
                 //
@@ -351,31 +353,67 @@ public class BuildWithBombs {
                 job.id = jobId;
                 job.previousTimestep = 1000;
                 job.position = new BlockPos(
-                            tnt.getBlockX() - 7,
-                            tnt.getBlockY() - 1,
-                            tnt.getBlockZ() - 7);
+                        queueItem.tnt.getBlockX() - 7, // Center the 14x14x14 chunk on X and Z.
+                        queueItem.tnt.getBlockY() - 1,
+                        queueItem.tnt.getBlockZ() - 7);
+                job.level = queueItem.level;
 
                 workerJobs.add(job);
+
+                //
+                // Server item and queue cleanup: 
+                //
+
+                // Remove this tnt from the level it was placed in 
+                queueItem.tnt.discard();   
+
+                // We now have a valid job ID so we can remove the tnt block from
+                // the player's queue and start diffusion.
+                tntQueue.poll(); // Remove this tnt from the player's queue
+
+                // Remove the player queue object itself if it's empty.
+                if (tntQueue.isEmpty()) {
+                    playersTntQueues.remove(playerId);
+                }
             }
         }
+    }
 
-        int totalDiffusionUpdates = 0;
+    /** @brief This is the main logic for the mod. It keeps track of which
+     * TNT blocks have been placed and triggers the diffusion process.
+     * This onLevelTick function runs once every tick for each dimension 
+     * (overworld, nether, the end).
+     */
+    @SubscribeEvent
+    public void onLevelTick(LevelTickEvent.Post event) {
 
-        // We shuffle the jobs as well to allow reach job to have an equal chance of
-        // running per tick if there are more than maxDiffusionUpdatesPerTick number of
-        // jobs queued.
-        List<WorkerJob> shuffledJobs = new ArrayList<>(workerJobs);
-        Collections.shuffle(shuffledJobs);
+        Level level = event.getLevel();
 
-        Iterator<WorkerJob> iterator = shuffledJobs.iterator();
+        if (level.isClientSide()) return;
+
+        // 
+        // Run the "runOncePerTick()" function once by per tick by 
+        // only triggering on the overworld update.
+        //
+        ResourceKey<Level> dimension = level.dimension();
+        boolean isOverworld = dimension.equals(Level.OVERWORLD);
+
+        if (isOverworld) {
+            runOncePerTick(level.getServer()); 
+        }
 
         //
-        // Iterate over the active jobs
+        // Iterate over the active diffusion jobs
         //
-        while (iterator.hasNext() &&
-                totalDiffusionUpdates < maxDiffusionUpdatesPerTick) {
+        Iterator<WorkerJob> iterator = workerJobs.iterator();
+
+        while (iterator.hasNext()) {
 
             WorkerJob job = iterator.next();
+
+            if (job.level != level) {
+                continue;
+            }
 
             if (job.initComplete) {
                 /*
@@ -384,47 +422,40 @@ public class BuildWithBombs {
                  */
                 int timestep = infer.getCurrentTimestep(job.id);
 
-                // Minecraft server behavior or bug:
-                // We could supposedly only call level.setBlockAndUpdate when we actually
-                // have new data by checking that the current timestep has changed, but in 
-                // practice this makes the performance worse instead of better (even though
-                // we would be doing less processing in the mod). My hypothesis is that if 
-                // I don't call setBlockAndUpdate on a server tick, then the server decides
-                // to update the path finding or do other time-intensive tasks. All I know
-                // is that the server performance is worse if I don't update these blocks
-                // every server tick while the diffusion process is running.
-                // (Note written 4-15-2025)
+                if (timestep < job.previousTimestep) {
 
-                infer.cacheCurrentTimestepForReading(job.id);
+                    infer.cacheCurrentTimestepForReading(job.id);
 
-                for (int x = 0; x < 14; x++) {
-                    for (int y = 0; y < 14; y++) {
-                        for (int z = 0; z < 14; z++) {
+                    for (int x = 0; x < 14; x++) {
+                        for (int y = 0; y < 14; y++) {
+                            for (int z = 0; z < 14; z++) {
 
-                            int new_id = infer.readBlockFromCachedTimestep(x, y, z);
+                                int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
-                            BlockPos position = new BlockPos(
-                                    job.position.getX() + x,
-                                    job.position.getY() + y,
-                                    job.position.getZ() + z);
+                                BlockPos position = new BlockPos(
+                                        job.position.getX() + x,
+                                        job.position.getY() + y,
+                                        job.position.getZ() + z);
 
-                            BlockState state = BLOCK_STATES[new_id];
+                                BlockState state = BLOCK_STATES[new_id];
 
-                            level.setBlockAndUpdate(position, state);
+                                job.level.setBlockAndUpdate(position, state);
+                            }
                         }
                     }
+                    
+                    // Since the world can change while diffusing, we need to update
+                    // the model's context continuously.
+                    updateDiffusionContext(job);
                 }
-
-                totalDiffusionUpdates += 1;
-                //updateDiffusionContext(job, level);
 
                 if (timestep == 0) {
                     infer.destroyJob(job.id);
-                    workerJobs.remove(job);
+                    iterator.remove();
                 }
 
             } else { // if(initComplete)
-                updateDiffusionContext(job, level);
+                updateDiffusionContext(job);
 
                 /* Tell the inference DLL that we're starting diffusion */
                 infer.startDiffusion(job.id);
@@ -446,16 +477,18 @@ public class BuildWithBombs {
             player.getInventory().add(diffusionTnt);
         }
 
-        if (!startedInit) {
+        MinecraftServer server = level.getServer();
+
+        if (!startedInit && server != null) {
             int major = infer.getVersionMajor();
             int minor = infer.getVersionMinor();
             int patch = infer.getVersionPatch();
 
-            printMessageToAllPlayers(level,"mod version (" + modMajor + "." + modMinor + "." + modPatch + ")");
-            printMessageToAllPlayers(level,"Diffusion engine version (" + major + "." + minor + "." + patch + ")");
+            printMessageToAllPlayersInAllDimensions(server,"mod version (" + modMajor + "." + modMinor + "." + modPatch + ")");
+            printMessageToAllPlayersInAllDimensions(server,"Diffusion engine version (" + major + "." + minor + "." + patch + ")");
 
             if (major != modMajor || minor != modMinor || patch != modPatch) {
-                printMessageToAllPlayers(level,"ERROR: Mod and diffusion engine don't match! Init failed.");
+                printMessageToAllPlayersInAllDimensions(server,"ERROR: Mod and diffusion engine don't match! Init failed.");
             } else {
                 infer.startInit(workerCount);
                 startedInit = true;
@@ -469,11 +502,14 @@ public class BuildWithBombs {
 
     }
 
-    private static void printMessageToAllPlayers(Level level, String message) {
+    private static void printMessageToAllPlayersInAllDimensions(MinecraftServer server, String message) {
+
         Component messageComponent = Component.literal(message);
 
-        for (Player player : level.players()) {
-            player.sendSystemMessage(messageComponent);
+        for (ServerLevel level : server.getAllLevels()) {
+            for (Player player : level.players()) {
+                player.sendSystemMessage(messageComponent);
+            }
         }
 
         LOGGER.info(message);
