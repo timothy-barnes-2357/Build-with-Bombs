@@ -55,7 +55,7 @@
  */
 const int32_t VERSION_MAJOR = 0;
 const int32_t VERSION_MINOR = 2;
-const int32_t VERSION_PATCH = 1;
+const int32_t VERSION_PATCH = 2;
 
 const int INFER_ERROR_INVALID_ARG             =  1;
 const int INFER_ERROR_FAILED_OPERATION        =  2;
@@ -71,7 +71,8 @@ const int INFER_ERROR_CUDA_RETURN             = 10;
 const int BLOCK_ID_COUNT = 16;
 const int EMBEDDING_DIMENSIONS = 3;
 const int CHUNK_WIDTH = 16;
-const int INPAINT_MARGIN = 1;
+const int INPAINT_MARGIN = 2;
+const int INPAINT_MASK_WIDTH = CHUNK_WIDTH - (INPAINT_MARGIN*2);
 
 const int N_U = 5;    /* Number of inpainting steps per timestep */
 const int N_T = 1000; /* Number of timesteps */
@@ -139,8 +140,8 @@ float alpha[N_T];
 float beta[N_T];
 float alpha_bar[N_T];
 
-/* Middle 14^3 blocks without surrounding context */
-int cached_block_ids[CHUNK_WIDTH-2][CHUNK_WIDTH-2][CHUNK_WIDTH-2]; 
+/* Middle blocks (masked for inpainting) without surrounding context */
+int cached_block_ids[INPAINT_MASK_WIDTH][INPAINT_MASK_WIDTH][INPAINT_MASK_WIDTH];
 
 /*
  * Static functions:
@@ -231,7 +232,7 @@ int thread_worker_main(WorkerThreadState *state) {
         }
 
         /* Copy the "context" and "mask" tensors to the GPU */
-        CUDA_CHECK(cudaMemcpy(cuda_x_mask,    state->x_mask,    SIZE_X_MASK,    cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(cuda_x_mask, state->x_mask, SIZE_X_MASK, cudaMemcpyHostToDevice));
 
         /* Zero-out the context and mask CPU buffers so they're clean
          * for the next diffusion run. We don't need the CPU buffers anymore

@@ -71,7 +71,7 @@ public class BuildWithBombs {
 
     private static final int MOD_MAJOR = 0; // TODO: Figure out how to sync these with gradle.properties mod_version
     private static final int MOD_MINOR = 2;
-    private static final int MOD_MATCH = 1;
+    private static final int MOD_MATCH = 2;
 
     private static final int WORKER_COUNT = 8;
     private static final int MAX_PLAYER_TNT_QUEUE = 16;
@@ -81,6 +81,8 @@ public class BuildWithBombs {
     private static final int DIFFUSION_TNT_FUSE_LENGTH = 80;
 
     private static final int CHUNK_WIDTH = 16;
+    private static final int INPAINT_MARGIN = 4;
+    private static final int MASK_WIDTH = CHUNK_WIDTH - (INPAINT_MARGIN*2);
 
     private static final Component DIFFUSION_TNT_NAME = Component.literal("Diffusion TNT");
 
@@ -252,9 +254,9 @@ public class BuildWithBombs {
 
                     infer.cacheCurrentTimestepForReading(job.id);
 
-                    for (int x = 0; x < 14; x++) {
-                        for (int y = 0; y < 14; y++) {
-                            for (int z = 0; z < 14; z++) {
+                    for (int x = 0; x < MASK_WIDTH; x++) {
+                        for (int y = 0; y < MASK_WIDTH; y++) {
+                            for (int z = 0; z < MASK_WIDTH; z++) {
 
                                 int new_id = infer.readBlockFromCachedTimestep(x, y, z);
 
@@ -351,12 +353,14 @@ public class BuildWithBombs {
                 //
                 WorkerJob job = new WorkerJob();
 
+                int center = MASK_WIDTH / 2;
+
                 job.id = jobId;
                 job.previousTimestep = 1000;
                 job.position = new BlockPos(
-                        queueItem.tnt.getBlockX() - 7, // Center the 14x14x14 chunk on X and Z.
+                        queueItem.tnt.getBlockX() - center, // Center the chunk on X and Z.
                         queueItem.tnt.getBlockY() - 1,
-                        queueItem.tnt.getBlockZ() - 7);
+                        queueItem.tnt.getBlockZ() - center);
                 job.level = queueItem.level;
 
                 workerJobs.add(job);
@@ -393,9 +397,9 @@ public class BuildWithBombs {
                 for (int z = 0; z < CHUNK_WIDTH; z++) {
 
                     BlockPos position = new BlockPos(
-                            job.position.getX() + x,
-                            job.position.getY() + y,
-                            job.position.getZ() + z);
+                            job.position.getX() + x - INPAINT_MARGIN,
+                            job.position.getY() + y - INPAINT_MARGIN,
+                            job.position.getZ() + z - INPAINT_MARGIN);
 
                     BlockState blockState = job.level.getBlockState(position);
                     Block block = blockState.getBlock();
