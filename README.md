@@ -15,6 +15,37 @@ Version requirements:
 ## Hardware compatibility
 TensorRT 10.5 requires an NVIDIA GPU with compute capability >= 7.5. This means it requires an **RTX 2060** or better, a **GTX 1660 Ti** or better, an **MX550** or better, or a **Tesla T4** or better. See the [support matrix](https://docs.nvidia.com/deeplearning/tensorrt/archives/tensorrt-1050/support-matrix/index.html). Check this Wikipedia table to find the compute capability of your GPU: [Compute capability, GPU semiconductors and Nvidia GPU board products](https://en.wikipedia.org/wiki/CUDA#GPUs_supported)
 
+## Setup Guide
+This setup guide includes steps for building the .jar Java mod file as well as building the native executable.
+
+#### Required packages and programs
+* CMake: https://cmake.org/download/
+* Java 21 JDK: https://www.oracle.com/java/technologies/downloads/#jdk21-windows
+* CUDA 12.6: https://developer.nvidia.com/cuda-12-6-0-download-archive
+* TensorRT 10.5: https://developer.nvidia.com/tensorrt/download/10x
+
+For Linux, install the package "TensorRT 10.5 GA for Linux x86_64 and CUDA 12.0 to 12.6 TAR Package". Extract the .tar and move the contents to /usr/local `sudo mv TensorRT-10.5.0.18 /usr/local/tensorrt-10.5`
+
+#### Build steps
+
+1. In the mod_neoforge directory, run `./gradlew setup`. This can take some time as it downloads the NeoForge dependencies.
+
+2. Run `./gradlew build`. After a successful build, the mod .jar file will be located in the build folder `mod_neoforge/build/libs/buildwithbombs-0.2.1.jar`. 
+
+3. Build the inference DLL using CMake.
+In the `inference_dll` directory, run:
+    * `cd mkdir build`
+    * `cd build` 
+    * `cmake ..`
+    * `make`
+
+4. Copy the newly built library (`inference.dll` on Windows, `libinference.so` on Linux) to the mod's run folder. The `run` folder should have been created after the `./gradlew setup` step.
+    * `cp libinference.so ../mod_neoforge/run
+  
+5. Make sure inference.dll is able to find the TensorRT and CUDA dynamic libraries. Either copy all DLLs into the `mod_neoforge/run` directory, or add the CUDA and TensorRT lib folders to the system path. On Linux, this can be done by `export LD_LIBRARY_PATH=/usr/local/tensorrt-10.5/lib:$LD_LIBRARY_PATH`
+
+6. Test the mod by running `./gradlew runClient`
+
 ## Social
 
 [buildwithbombs.com](https://buildwithbombs.com)
