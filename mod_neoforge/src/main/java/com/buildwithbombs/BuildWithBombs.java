@@ -16,9 +16,15 @@
 
 package com.buildwithbombs;
 
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.Creeper;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -145,6 +151,7 @@ public class BuildWithBombs {
         }
     }
 
+    Creeper creeper = null;
     /** @brief This function handles the logic for when the player
      * places one of the diffusion TNT blocks
      */
@@ -169,6 +176,31 @@ public class BuildWithBombs {
             Level level = (Level)event.getLevel();
             BlockPos pos = event.getPos();
 
+            /// ////////////////////////////////////////////
+            // Create a test entity.
+            creeper = new Creeper(EntityType.CREEPER, level);
+            creeper.setPos(pos.getX(), pos.getY(), pos.getZ());
+
+            AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
+            if (scaleAttribute != null) {
+                scaleAttribute.setBaseValue(5.0);
+            }
+
+            AttributeInstance followRangeAttribute = creeper.getAttribute(Attributes.FOLLOW_RANGE);
+            if (followRangeAttribute != null) {
+                followRangeAttribute.setBaseValue(2048.0);
+            }
+
+            CompoundTag nbt = new CompoundTag();
+            creeper.save(nbt);
+            nbt.putBoolean("PersistenceRequired", true);
+            nbt.putByte("ExplosionRadius", (byte) 6);
+            creeper.load(nbt);
+
+            level.addFreshEntity(creeper);
+            /// ////////////////////////////
+
+        /*
             event.setCanceled(true);
 
             level.setBlock(pos, Blocks.TNT.defaultBlockState(), 11);
@@ -204,6 +236,8 @@ public class BuildWithBombs {
                 String error = "Player max TNT queue is " + MAX_PLAYER_TNT_QUEUE;
                 player.sendSystemMessage(Component.literal(error));
             }
+
+         */
         }
     }
 
@@ -218,6 +252,14 @@ public class BuildWithBombs {
         Level level = event.getLevel();
 
         if (level.isClientSide()) return;
+
+        // Creeper logic:
+        if (creeper != null) {
+            Player nearestPlayer = level.getNearestPlayer(creeper, 2048.0);
+            if (nearestPlayer != null) {
+                creeper.setTarget(nearestPlayer);
+            }
+        }
 
         // 
         // Run the "runOncePerTick()" function once by per tick by 

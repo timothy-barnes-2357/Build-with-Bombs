@@ -1,0 +1,13 @@
+{
+    "required": true,
+    "package": "com.buildwithbombs.mixins",
+    "compatibilityLevel": "JAVA_21",
+    "mixins": [
+        "CreeperMixin"
+    ],
+    "client": [],
+    "server": ["CreeperMixin"],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}
