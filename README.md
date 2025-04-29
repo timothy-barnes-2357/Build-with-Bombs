@@ -42,9 +42,11 @@ In the `inference_dll` directory, run:
 4. Copy the newly built library (`inference.dll` on Windows, `libinference.so` on Linux) to the mod's run folder. The `run` folder should have been created after the `./gradlew setup` step.
     * `cp libinference.so ../mod_neoforge/run`
   
-5. Make sure inference.dll is able to find the TensorRT and CUDA dynamic libraries. Either copy all DLLs into the `mod_neoforge/run` directory, or add the CUDA and TensorRT lib folders to the system path. On Linux, this can be done by `export LD_LIBRARY_PATH=/usr/local/tensorrt-10.5/lib:$LD_LIBRARY_PATH`
+5. Copy the .ONNX model file from the GitHub [release page](https://github.com/timothy-barnes-2357/Build-with-Bombs/releases/download/v0.2.1/ddim_single_update.onnx) and place it in the `mod_neoforge/run` directory. This contains the model parameters and must be located next to inference.dll.
+  
+6. Make sure inference.dll is able to find the TensorRT and CUDA dynamic libraries. Either copy all DLLs into the `mod_neoforge/run` directory, or add the CUDA and TensorRT lib folders to the system path. On Linux, this can be done by `export LD_LIBRARY_PATH=/usr/local/tensorrt-10.5/lib:$LD_LIBRARY_PATH`
 
-6. Test the mod by running `./gradlew runClient`
+7. Test the mod by running `./gradlew runClient`
 
 ## Social
 
