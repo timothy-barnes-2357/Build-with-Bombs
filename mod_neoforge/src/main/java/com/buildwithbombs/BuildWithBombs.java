@@ -35,7 +35,6 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
@@ -53,6 +52,8 @@ import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.block.state.properties.*;
 import java.util.*;
 import java.util.function.Supplier;
+
+import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 
 @Mod(BuildWithBombs.MODID)
 public class BuildWithBombs {
@@ -221,7 +222,7 @@ public class BuildWithBombs {
         int ticksNoMovement;
     }
 
-    Queue<HordeCreeper> horde = new LinkedList<>();
+    LinkedList<HordeCreeper> horde = new LinkedList<>();
     int tickNumber = 0;
 
     /** @brief This is the main logic for the mod. It keeps track of which
@@ -239,9 +240,9 @@ public class BuildWithBombs {
         //
         // Creeper logic:
         //
-        if (tickNumber % 100 == 0) {
+        if (tickNumber % 10 == 0) {
             Creeper creeper = new Creeper(EntityType.CREEPER, level);
-            creeper.setPos(0, -50, 0);
+            creeper.setPos(50, -50, 0);
 
             AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
             if (scaleAttribute != null) {
@@ -255,7 +256,7 @@ public class BuildWithBombs {
 
             AttributeInstance movementSpeedAttribute = creeper.getAttribute(Attributes.MOVEMENT_SPEED);
             if (movementSpeedAttribute != null) {
-                movementSpeedAttribute.setBaseValue(0.5);
+                movementSpeedAttribute.setBaseValue(0.6);
             }
 
             CompoundTag nbt = new CompoundTag();
@@ -277,6 +278,7 @@ public class BuildWithBombs {
             HordeCreeper hordeCreeper = creeperIterator.next();
             Creeper creeper = hordeCreeper.creeper;
 
+
             if ((int)creeper.getX() == hordeCreeper.lastX &&
                     (int)creeper.getY() == hordeCreeper.lastY &&
                     (int)creeper.getZ() == hordeCreeper.lastZ) {
@@ -289,22 +291,26 @@ public class BuildWithBombs {
             hordeCreeper.lastY = (int)creeper.getY();
             hordeCreeper.lastZ = (int)creeper.getZ();
 
-            // Clean up the dead creepers
-            if (!creeper.isAlive() || creeper.isRemoved()) {
-                creeperIterator.remove();
-            } else {
-                Player nearestPlayer = level.getNearestPlayer(creeper, 2048.0);
-                if (nearestPlayer != null) {
-                    creeper.setTarget(nearestPlayer);
-                }
+            Player nearestPlayer = level.getNearestPlayer(creeper, 2048.0);
+            if (nearestPlayer != null) {
+                creeper.setTarget(nearestPlayer);
+                creeper.setNoActionTime(1);
             }
 
-            if (hordeCreeper.ticksNoMovement > 80) {
+            if (hordeCreeper.ticksNoMovement > 20) {
                 creeper.ignite();
+                creeperIterator.remove();
             }
         }
 
         tickNumber += 1;
+
+        String actionBarText = "TNT: " + workerJobs.size() + "/" + WORKER_COUNT + ", Creepers: " + horde.size();
+
+        for (Player player : level.players()) {
+            ServerPlayer serverPlayer = (ServerPlayer)player;
+            serverPlayer.connection.send(new ClientboundSystemChatPacket(Component.literal(actionBarText), true));
+        }
 
         // 
         // Run the "runOncePerTick()" function once by per tick by 
