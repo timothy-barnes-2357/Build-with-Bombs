@@ -71,7 +71,7 @@ const int INFER_ERROR_CUDA_RETURN             = 10;
 const int BLOCK_ID_COUNT = 16;
 const int EMBEDDING_DIMENSIONS = 3;
 const int CHUNK_WIDTH = 16;
-const int INPAINT_MARGIN = 2;
+const int INPAINT_MARGIN = 1;
 const int INPAINT_MASK_WIDTH = CHUNK_WIDTH - (INPAINT_MARGIN*2);
 
 const int N_U = 5;    /* Number of inpainting steps per timestep */

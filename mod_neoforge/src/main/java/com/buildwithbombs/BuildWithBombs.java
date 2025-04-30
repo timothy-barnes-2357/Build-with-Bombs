@@ -87,7 +87,7 @@ public class BuildWithBombs {
     private static final int DIFFUSION_TNT_FUSE_LENGTH = 80;
 
     private static final int CHUNK_WIDTH = 16;
-    private static final int INPAINT_MARGIN = 4;
+    private static final int INPAINT_MARGIN = 1;
     private static final int MASK_WIDTH = CHUNK_WIDTH - (INPAINT_MARGIN*2);
 
     private static final Component DIFFUSION_TNT_NAME = Component.literal("Diffusion TNT");
@@ -213,7 +213,15 @@ public class BuildWithBombs {
         }
     }
 
-    Queue<Creeper> horde = new LinkedList<>();
+    private class HordeCreeper {
+        Creeper creeper;
+        int lastX;
+        int lastY;
+        int lastZ;
+        int ticksNoMovement;
+    }
+
+    Queue<HordeCreeper> horde = new LinkedList<>();
     int tickNumber = 0;
 
     /** @brief This is the main logic for the mod. It keeps track of which
@@ -237,7 +245,7 @@ public class BuildWithBombs {
 
             AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
             if (scaleAttribute != null) {
-                scaleAttribute.setBaseValue(5.0);
+                scaleAttribute.setBaseValue(2.0);
             }
 
             AttributeInstance followRangeAttribute = creeper.getAttribute(Attributes.FOLLOW_RANGE);
@@ -245,20 +253,41 @@ public class BuildWithBombs {
                 followRangeAttribute.setBaseValue(2048.0);
             }
 
+            AttributeInstance movementSpeedAttribute = creeper.getAttribute(Attributes.MOVEMENT_SPEED);
+            if (movementSpeedAttribute != null) {
+                movementSpeedAttribute.setBaseValue(0.5);
+            }
+
             CompoundTag nbt = new CompoundTag();
             creeper.save(nbt);
             nbt.putBoolean("PersistenceRequired", true);
-            nbt.putByte("ExplosionRadius", (byte) 6);
+            nbt.putByte("ExplosionRadius", (byte) 9);
             creeper.load(nbt);
 
+            HordeCreeper hordeCreeper = new HordeCreeper();
+            hordeCreeper.creeper = creeper;
+
             level.addFreshEntity(creeper);
-            horde.add(creeper);
+            horde.add(hordeCreeper);
         }
 
-        Iterator<Creeper> creeperIterator = horde.iterator();
+        Iterator<HordeCreeper> creeperIterator = horde.iterator();
 
         while (creeperIterator.hasNext()) {
-            Creeper creeper = creeperIterator.next();
+            HordeCreeper hordeCreeper = creeperIterator.next();
+            Creeper creeper = hordeCreeper.creeper;
+
+            if ((int)creeper.getX() == hordeCreeper.lastX &&
+                    (int)creeper.getY() == hordeCreeper.lastY &&
+                    (int)creeper.getZ() == hordeCreeper.lastZ) {
+                hordeCreeper.ticksNoMovement += 1;
+            } else {
+                hordeCreeper.ticksNoMovement = 0;
+            }
+
+            hordeCreeper.lastX = (int)creeper.getX();
+            hordeCreeper.lastY = (int)creeper.getY();
+            hordeCreeper.lastZ = (int)creeper.getZ();
 
             // Clean up the dead creepers
             if (!creeper.isAlive() || creeper.isRemoved()) {
@@ -268,6 +297,10 @@ public class BuildWithBombs {
                 if (nearestPlayer != null) {
                     creeper.setTarget(nearestPlayer);
                 }
+            }
+
+            if (hordeCreeper.ticksNoMovement > 80) {
+                creeper.ignite();
             }
         }
 
@@ -281,7 +314,7 @@ public class BuildWithBombs {
         boolean isOverworld = dimension.equals(Level.OVERWORLD);
 
         if (isOverworld) {
-            runOncePerTick(level.getServer()); 
+            runOncePerTick(level.getServer());
         }
 
         //
@@ -413,7 +446,7 @@ public class BuildWithBombs {
                 job.previousTimestep = 1000;
                 job.position = new BlockPos(
                         queueItem.tnt.getBlockX() - center, // Center the chunk on X and Z.
-                        queueItem.tnt.getBlockY() - 1,
+                        queueItem.tnt.getBlockY(),
                         queueItem.tnt.getBlockZ() - center);
                 job.level = queueItem.level;
 
@@ -498,7 +531,7 @@ public class BuildWithBombs {
     /* We keep track of which TNT blocks are related to this mod by adding a custom name */
     private static ItemStack createDiffusionTnt() {
 
-        ItemStack tnt = new ItemStack(Items.TNT);
+        ItemStack tnt = new ItemStack(Items.TNT, 16);
 
         Supplier<DataComponentType<Component>> CUSTOM_NAME_SUPPLIER = () -> DataComponents.CUSTOM_NAME;
         tnt.set(CUSTOM_NAME_SUPPLIER, DIFFUSION_TNT_NAME);
@@ -526,7 +559,7 @@ public class BuildWithBombs {
             Blocks.WHITE_CONCRETE.defaultBlockState(),
 
             // 3 - minecraft:oak_planks
-            Blocks.OAK_PLANKS.defaultBlockState(),
+            Blocks.COBBLESTONE.defaultBlockState(),
 
             // 4 - minecraft:stone_bricks
             Blocks.STONE_BRICKS.defaultBlockState(),
@@ -559,7 +592,7 @@ public class BuildWithBombs {
             Blocks.GREEN_CONCRETE.defaultBlockState(),
 
             // 13 - minecraft:oak_slab
-            Blocks.OAK_SLAB.defaultBlockState(),
+            Blocks.COBBLESTONE_SLAB.defaultBlockState(),
 
             // 14 - minecraft:sandstone
             Blocks.SANDSTONE.defaultBlockState(),
@@ -579,20 +612,21 @@ public class BuildWithBombs {
         BLOCK_MAPPING.put("oak planks", 3);
         BLOCK_MAPPING.put("stone bricks", 4);
         BLOCK_MAPPING.put("grass block", 5);
+        BLOCK_MAPPING.put("bedrock", 5);
         BLOCK_MAPPING.put("stone brick slab", 6);
         BLOCK_MAPPING.put("glass", 8);
         BLOCK_MAPPING.put("bookshelf", 10);
         BLOCK_MAPPING.put("gravel", 11);
         BLOCK_MAPPING.put("green concrete", 12);
         BLOCK_MAPPING.put("oak slab", 13);
+        BLOCK_MAPPING.put("cobblestone slab", 13);
         BLOCK_MAPPING.put("sandstone", 14);
-        BLOCK_MAPPING.put("cobblestone slab", 6);
         BLOCK_MAPPING.put("end stone brick slab", 6);
         BLOCK_MAPPING.put("spruce planks", 3);
         BLOCK_MAPPING.put("chiseled quartz block", 2);
         BLOCK_MAPPING.put("stone", 4);
         BLOCK_MAPPING.put("end stone bricks", 4);
-        BLOCK_MAPPING.put("cobblestone", 4);
+        BLOCK_MAPPING.put("cobblestone", 3);
         BLOCK_MAPPING.put("green wool", 5);
         BLOCK_MAPPING.put("stripped oak wood", 3);
         BLOCK_MAPPING.put("granite", 11);
