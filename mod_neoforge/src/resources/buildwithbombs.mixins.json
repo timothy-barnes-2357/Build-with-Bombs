@@ -3,10 +3,11 @@
     "package": "com.buildwithbombs.mixins",
     "compatibilityLevel": "JAVA_21",
     "mixins": [
-        "CreeperMixin"
+        "CreeperMixin",
+        "EndPortalBlockMixin"
     ],
     "client": [],
-    "server": ["CreeperMixin"],
+    "server": ["CreeperMixin", "EndPortalBlockMixin"],
     "injectors": {
         "defaultRequire": 1
     }
