@@ -24,6 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
@@ -91,7 +92,11 @@ public class BuildWithBombs {
     private static final int INPAINT_MARGIN = 1;
     private static final int MASK_WIDTH = CHUNK_WIDTH - (INPAINT_MARGIN*2);
 
+    private static final int TICKS_PER_SECOND = 20;
+
     private static final Component DIFFUSION_TNT_NAME = Component.literal("Diffusion TNT");
+
+    private static final Random random = new Random();
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private final Inference infer;
@@ -223,7 +228,12 @@ public class BuildWithBombs {
     }
 
     LinkedList<HordeCreeper> horde = new LinkedList<>();
+    private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 2;
+    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 60;
     int tickNumber = 0;
+    int ticksRemainingWave = TICKS_PER_WAVE; 
+    int ticksRemainingDowntime = TICKS_PER_DOWNTIME;
+    boolean isWave = false;
 
     /** @brief This is the main logic for the mod. It keeps track of which
      * TNT blocks have been placed and triggers the diffusion process.
@@ -237,16 +247,67 @@ public class BuildWithBombs {
 
         if (level.isClientSide()) return;
 
+        // The first player to join the server is the one the creepers spawn around.
+        Player firstPlayer = null;
+
         //
-        // Creeper logic:
+        // Placing eye of ender logic:
         //
-        if (tickNumber % 10 == 0) {
+        if (tickNumber % 100 == 0) {
+
+            ItemStack enderEyeStack = new ItemStack(Items.ENDER_EYE, 1);
+
+            float radius = 100.0f * random.nextFloat();
+
+            float angle = 2.0f*(float)Math.PI * random.nextFloat();
+            float offset_x = radius * (float)Math.cos(angle);
+            float offset_z = radius * (float)Math.sin(angle);
+
+            // The spawn position is on a circle centered in the middle of the map.
+            int spawnX = (int)offset_x;
+            int spawnY = -60; // Near ground level in superflat
+            int spawnZ = (int) offset_z;
+
+            ItemEntity itemEntity = new ItemEntity(
+                level,
+                spawnX, spawnY, spawnZ,
+                enderEyeStack
+            );
+
+            level.addFreshEntity(itemEntity);
+        }
+
+        //
+        // Creeper spawn:
+        //
+        //if (tickNumber % 1 == 0) {
+        if (isWave) {
+
+            // Find a spawn point of the creeper in a radius around the player 
+
+            float radius = 50.0f;
+
+            float angle = 2.0f*(float)Math.PI * random.nextFloat();
+            float offset_x = radius * (float)Math.cos(angle);
+            float offset_z = radius * (float)Math.sin(angle);
+
+            // The spawn position is on a circle centered in the middle of the map.
+            int spawnX = (int)offset_x;
+            int spawnY = -60; // Near ground level in superflat
+            int spawnZ = (int) offset_z;
+
+            // Get a random offset 
             Creeper creeper = new Creeper(EntityType.CREEPER, level);
-            creeper.setPos(50, -50, 0);
+            creeper.setPos(spawnX, spawnY, spawnZ);
+
+            AttributeInstance stepAttribute = creeper.getAttribute(Attributes.STEP_HEIGHT);
+            if (stepAttribute != null) {
+                stepAttribute.setBaseValue(100.0);
+            }
 
             AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
             if (scaleAttribute != null) {
-                scaleAttribute.setBaseValue(2.0);
+                scaleAttribute.setBaseValue(1.0);
             }
 
             AttributeInstance followRangeAttribute = creeper.getAttribute(Attributes.FOLLOW_RANGE);
@@ -262,7 +323,7 @@ public class BuildWithBombs {
             CompoundTag nbt = new CompoundTag();
             creeper.save(nbt);
             nbt.putBoolean("PersistenceRequired", true);
-            nbt.putByte("ExplosionRadius", (byte) 9);
+            nbt.putByte("ExplosionRadius", (byte) 1);
             creeper.load(nbt);
 
             HordeCreeper hordeCreeper = new HordeCreeper();
@@ -278,10 +339,9 @@ public class BuildWithBombs {
             HordeCreeper hordeCreeper = creeperIterator.next();
             Creeper creeper = hordeCreeper.creeper;
 
-
             if ((int)creeper.getX() == hordeCreeper.lastX &&
-                    (int)creeper.getY() == hordeCreeper.lastY &&
-                    (int)creeper.getZ() == hordeCreeper.lastZ) {
+                (int)creeper.getY() == hordeCreeper.lastY &&
+                (int)creeper.getZ() == hordeCreeper.lastZ) {
                 hordeCreeper.ticksNoMovement += 1;
             } else {
                 hordeCreeper.ticksNoMovement = 0;
@@ -297,15 +357,33 @@ public class BuildWithBombs {
                 creeper.setNoActionTime(1);
             }
 
-            if (hordeCreeper.ticksNoMovement > 20) {
+            if (hordeCreeper.ticksNoMovement > 40) {
                 creeper.ignite();
                 creeperIterator.remove();
             }
         }
 
-        tickNumber += 1;
 
-        String actionBarText = "TNT: " + workerJobs.size() + "/" + WORKER_COUNT + ", Creepers: " + horde.size();
+        if (isWave) {
+            
+            ticksRemainingWave -= 1;
+
+            if (ticksRemainingWave <= 0) {
+                ticksRemainingDowntime = TICKS_PER_DOWNTIME;
+                isWave = false;
+            }
+        } else {
+            ticksRemainingDowntime -= 1;
+
+            if (ticksRemainingDowntime <= 0) {
+                ticksRemainingWave = TICKS_PER_WAVE;
+                isWave = true;
+            }
+        }
+
+        int secondsUntilNextWave = ticksRemainingDowntime / TICKS_PER_SECOND;
+
+        String actionBarText = "TNT: " + workerJobs.size() + "/" + WORKER_COUNT + ", Creepers: " + horde.size() + ", Time until next wave: " + secondsUntilNextWave;
 
         for (Player player : level.players()) {
             ServerPlayer serverPlayer = (ServerPlayer)player;
@@ -383,6 +461,8 @@ public class BuildWithBombs {
                 job.initComplete = true;
             }
         }
+
+        tickNumber += 1;
     }
 
     /** @brief Unlike onLevelTick, this function runs once per tick 
