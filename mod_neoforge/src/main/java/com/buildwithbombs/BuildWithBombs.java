@@ -125,6 +125,24 @@ public class BuildWithBombs {
         NeoForge.EVENT_BUS.register(this);
     }
 
+    private void givePlayerTnt(Player player) {
+        ItemStack diffusionTnt = createDiffusionTnt();
+
+        if (!player.getInventory().contains(diffusionTnt)) {
+            player.getInventory().add(diffusionTnt);
+        }
+    }
+
+    @SubscribeEvent
+    private void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        Player player = event.getEntity();
+        Level level = player.level();
+
+        if (level.isClientSide()) { return; }
+
+        givePlayerTnt(player);
+    }
+
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         Player player = event.getEntity();
@@ -132,11 +150,7 @@ public class BuildWithBombs {
 
         if (level.isClientSide()) { return; }
 
-        ItemStack diffusionTnt = createDiffusionTnt();
-
-        if (!player.getInventory().contains(diffusionTnt)) {
-            player.getInventory().add(diffusionTnt);
-        }
+        givePlayerTnt(player);
 
         MinecraftServer server = level.getServer();
 
@@ -228,12 +242,16 @@ public class BuildWithBombs {
     }
 
     LinkedList<HordeCreeper> horde = new LinkedList<>();
-    private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 2;
-    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 60;
+    private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 10;
+    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 180;
     int tickNumber = 0;
     int ticksRemainingWave = TICKS_PER_WAVE; 
     int ticksRemainingDowntime = TICKS_PER_DOWNTIME;
     boolean isWave = false;
+
+    private final int TICKS_PER_GAME = TICKS_PER_SECOND * 60;
+
+    //float angle = 2.0f*(float)Math.PI * random.nextFloat();
 
     /** @brief This is the main logic for the mod. It keeps track of which
      * TNT blocks have been placed and triggers the diffusion process.
@@ -253,7 +271,7 @@ public class BuildWithBombs {
         //
         // Placing eye of ender logic:
         //
-        if (tickNumber % 100 == 0) {
+        if (tickNumber % 200 == 0) {
 
             ItemStack enderEyeStack = new ItemStack(Items.ENDER_EYE, 1);
 
@@ -280,7 +298,6 @@ public class BuildWithBombs {
         //
         // Creeper spawn:
         //
-        //if (tickNumber % 1 == 0) {
         if (isWave) {
 
             // Find a spawn point of the creeper in a radius around the player 
@@ -302,7 +319,7 @@ public class BuildWithBombs {
 
             AttributeInstance stepAttribute = creeper.getAttribute(Attributes.STEP_HEIGHT);
             if (stepAttribute != null) {
-                stepAttribute.setBaseValue(100.0);
+                stepAttribute.setBaseValue(4.0);
             }
 
             AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
@@ -317,13 +334,13 @@ public class BuildWithBombs {
 
             AttributeInstance movementSpeedAttribute = creeper.getAttribute(Attributes.MOVEMENT_SPEED);
             if (movementSpeedAttribute != null) {
-                movementSpeedAttribute.setBaseValue(0.6);
+                movementSpeedAttribute.setBaseValue(0.4);
             }
 
             CompoundTag nbt = new CompoundTag();
             creeper.save(nbt);
             nbt.putBoolean("PersistenceRequired", true);
-            nbt.putByte("ExplosionRadius", (byte) 1);
+            nbt.putByte("ExplosionRadius", (byte) 2);
             creeper.load(nbt);
 
             HordeCreeper hordeCreeper = new HordeCreeper();
