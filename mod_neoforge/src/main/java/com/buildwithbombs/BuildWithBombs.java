@@ -16,16 +16,21 @@
 
 package com.buildwithbombs;
 
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.level.block.EndPortalFrameBlock;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -243,15 +248,94 @@ public class BuildWithBombs {
 
     LinkedList<HordeCreeper> horde = new LinkedList<>();
     private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 10;
-    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 180;
+    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 30;
     int tickNumber = 0;
     int ticksRemainingWave = TICKS_PER_WAVE; 
     int ticksRemainingDowntime = TICKS_PER_DOWNTIME;
     boolean isWave = false;
 
     private final int TICKS_PER_GAME = TICKS_PER_SECOND * 60;
+    
+    private final int GAME_MIN_X = -200;
+    private final int GAME_MIN_Y = -64;
+    private final int GAME_MIN_Z = -200;
 
-    //float angle = 2.0f*(float)Math.PI * random.nextFloat();
+    private final int GAME_MAX_X = 200;
+    private final int GAME_MAX_Y = 0;
+    private final int GAME_MAX_Z = 200;
+
+    private void createEndPortalFrame(Level level) {
+        BlockState frameWithEye = Blocks.END_PORTAL_FRAME.defaultBlockState();
+        BlockState airState = Blocks.AIR.defaultBlockState();
+
+        // North side
+        level.setBlockAndUpdate(new BlockPos(-1, GAME_MIN_Y, -2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.SOUTH));
+        level.setBlockAndUpdate(new BlockPos(0, GAME_MIN_Y, -2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.SOUTH));
+        level.setBlockAndUpdate(new BlockPos(1, GAME_MIN_Y, -2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.SOUTH));
+
+        // East side
+        level.setBlockAndUpdate(new BlockPos(2, GAME_MIN_Y, -1), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.WEST));
+        level.setBlockAndUpdate(new BlockPos(2, GAME_MIN_Y, 0), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.WEST));
+        level.setBlockAndUpdate(new BlockPos(2, GAME_MIN_Y, 1), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.WEST));
+
+        // South side
+        level.setBlockAndUpdate(new BlockPos(1, GAME_MIN_Y, 2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.NORTH));
+        level.setBlockAndUpdate(new BlockPos(0, GAME_MIN_Y, 2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.NORTH));
+        level.setBlockAndUpdate(new BlockPos(-1, GAME_MIN_Y, 2), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.NORTH));
+
+        // West side
+        level.setBlockAndUpdate(new BlockPos(-2, GAME_MIN_Y, 1), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.EAST));
+        level.setBlockAndUpdate(new BlockPos(-2, GAME_MIN_Y, 0), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.EAST));
+        level.setBlockAndUpdate(new BlockPos(-2, GAME_MIN_Y, -1), frameWithEye.setValue(EndPortalFrameBlock.FACING, Direction.EAST));
+
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                level.setBlockAndUpdate(new BlockPos(x, GAME_MIN_Y, z), airState);
+            }
+        }
+    }
+
+    private void resetGameBlocks(Level level) {
+
+        BlockState bedrockState = Blocks.BEDROCK.defaultBlockState();
+        BlockState airState = Blocks.AIR.defaultBlockState();
+
+        for (int x = GAME_MIN_X; x <= GAME_MAX_X; x++) {
+            for (int z = GAME_MIN_Z; z <= GAME_MAX_Z; z++) {
+                // Place bedrock at GAME_MIN_Y
+                BlockPos bedrockPos = new BlockPos(x, GAME_MIN_Y, z);
+                level.setBlockAndUpdate(bedrockPos, bedrockState);
+
+                for (int y = GAME_MIN_Y + 1; y < GAME_MAX_Y; y++) {
+                    BlockPos pos = new BlockPos(x, y, z);
+                    level.setBlockAndUpdate(pos, airState);
+                }
+            }
+        }
+    }
+
+    private void clearAllItemsAndMobs(Level level) {
+
+        AABB boundingBox = new AABB(GAME_MIN_X, GAME_MIN_Y, GAME_MIN_Z, GAME_MAX_X, GAME_MAX_Y, GAME_MAX_Z);
+
+        List<ItemEntity> items = level.getEntitiesOfClass(ItemEntity.class, boundingBox);
+
+        for (ItemEntity item : items) {
+            item.remove(Entity.RemovalReason.DISCARDED);
+        }
+
+        List<Mob> mobs = level.getEntitiesOfClass(Mob.class, boundingBox);
+
+        for (Mob mob : mobs) {
+            mob.remove(Entity.RemovalReason.KILLED);
+        }
+    }
+
+    private void resetPlayerPositions(Level level) {
+        for (Player player : level.players()) {
+            player.setPos(-10, GAME_MIN_Y-1, 0);
+        }
+    }
 
     /** @brief This is the main logic for the mod. It keeps track of which
      * TNT blocks have been placed and triggers the diffusion process.
@@ -298,11 +382,11 @@ public class BuildWithBombs {
         //
         // Creeper spawn:
         //
+        //if (tickNumber % 5 == 0) {
         if (isWave) {
 
-            // Find a spawn point of the creeper in a radius around the player 
-
-            float radius = 50.0f;
+            // Find a spawn point of the creeper in a radius around the player
+            float radius = 10.0f;
 
             float angle = 2.0f*(float)Math.PI * random.nextFloat();
             float offset_x = radius * (float)Math.cos(angle);
@@ -310,7 +394,7 @@ public class BuildWithBombs {
 
             // The spawn position is on a circle centered in the middle of the map.
             int spawnX = (int)offset_x;
-            int spawnY = -60; // Near ground level in superflat
+            int spawnY = GAME_MIN_Y + 5; // Near ground level
             int spawnZ = (int) offset_z;
 
             // Get a random offset 
@@ -388,6 +472,11 @@ public class BuildWithBombs {
             if (ticksRemainingWave <= 0) {
                 ticksRemainingDowntime = TICKS_PER_DOWNTIME;
                 isWave = false;
+
+                resetGameBlocks(level);
+                clearAllItemsAndMobs(level);
+                createEndPortalFrame(level);
+                resetPlayerPositions(level);
             }
         } else {
             ticksRemainingDowntime -= 1;
