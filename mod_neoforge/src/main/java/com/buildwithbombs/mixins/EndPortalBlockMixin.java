@@ -15,6 +15,6 @@ public class EndPortalBlockMixin {
     @Inject(method = "entityInside", at = @At("HEAD"), cancellable = true)
 
     private void onEntityInside(BlockState state, Level level, BlockPos pos, Entity entity, CallbackInfo ci) {
-        ci.cancel();
+        //ci.cancel();
     }
 }

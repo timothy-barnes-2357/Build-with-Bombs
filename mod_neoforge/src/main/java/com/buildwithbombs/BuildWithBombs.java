@@ -86,8 +86,8 @@ public class BuildWithBombs {
     private static final int MOD_MINOR = 2;
     private static final int MOD_MATCH = 2;
 
-    private static final int WORKER_COUNT = 8;
-    private static final int MAX_PLAYER_TNT_QUEUE = 16;
+    private static final int WORKER_COUNT = 4;
+    private static final int MAX_PLAYER_TNT_QUEUE = 8;
 
     // Arbitrarily large fuse so we can handle the explosion manually.
     private static final int MAX_TNT_FUSE = 1000000; 
@@ -160,6 +160,8 @@ public class BuildWithBombs {
         MinecraftServer server = level.getServer();
 
         if (!startedInit && server != null) {
+            resetEverything(level);
+
             int major = infer.getVersionMajor();
             int minor = infer.getVersionMinor();
             int patch = infer.getVersionPatch();
@@ -247,15 +249,14 @@ public class BuildWithBombs {
     }
 
     LinkedList<HordeCreeper> horde = new LinkedList<>();
-    private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 10;
-    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 30;
+    private final int TICKS_PER_WAVE = TICKS_PER_SECOND * 30;
+    private final int TICKS_PER_DOWNTIME = TICKS_PER_SECOND * 60 * 2;
+    private final int TICKS_PER_GAME = TICKS_PER_SECOND * 10;
     int tickNumber = 0;
     int ticksRemainingWave = TICKS_PER_WAVE; 
     int ticksRemainingDowntime = TICKS_PER_DOWNTIME;
     boolean isWave = false;
 
-    private final int TICKS_PER_GAME = TICKS_PER_SECOND * 60;
-    
     private final int GAME_MIN_X = -200;
     private final int GAME_MIN_Y = -64;
     private final int GAME_MIN_Z = -200;
@@ -337,6 +338,15 @@ public class BuildWithBombs {
         }
     }
 
+    private void resetEverything(Level level) {
+        resetGameBlocks(level);
+        clearAllItemsAndMobs(level);
+        createEndPortalFrame(level);
+        resetPlayerPositions(level);
+    }
+
+    int resetCount = 0;
+
     /** @brief This is the main logic for the mod. It keeps track of which
      * TNT blocks have been placed and triggers the diffusion process.
      * This onLevelTick function runs once every tick for each dimension 
@@ -355,7 +365,7 @@ public class BuildWithBombs {
         //
         // Placing eye of ender logic:
         //
-        if (tickNumber % 200 == 0) {
+        if (tickNumber % 100 == 0) {
 
             ItemStack enderEyeStack = new ItemStack(Items.ENDER_EYE, 1);
 
@@ -386,10 +396,11 @@ public class BuildWithBombs {
         if (isWave) {
 
             // Find a spawn point of the creeper in a radius around the player
-            float radius = 10.0f;
+            float radius = 100.0f;
 
             float angle = 2.0f*(float)Math.PI * random.nextFloat();
             float offset_x = radius * (float)Math.cos(angle);
+
             float offset_z = radius * (float)Math.sin(angle);
 
             // The spawn position is on a circle centered in the middle of the map.
@@ -397,18 +408,18 @@ public class BuildWithBombs {
             int spawnY = GAME_MIN_Y + 5; // Near ground level
             int spawnZ = (int) offset_z;
 
-            // Get a random offset 
+            // Get a random offset
             Creeper creeper = new Creeper(EntityType.CREEPER, level);
             creeper.setPos(spawnX, spawnY, spawnZ);
 
             AttributeInstance stepAttribute = creeper.getAttribute(Attributes.STEP_HEIGHT);
             if (stepAttribute != null) {
-                stepAttribute.setBaseValue(4.0);
+                stepAttribute.setBaseValue(50.0);
             }
 
             AttributeInstance scaleAttribute = creeper.getAttribute(Attributes.SCALE);
             if (scaleAttribute != null) {
-                scaleAttribute.setBaseValue(1.0);
+                scaleAttribute.setBaseValue(1.5);
             }
 
             AttributeInstance followRangeAttribute = creeper.getAttribute(Attributes.FOLLOW_RANGE);
@@ -424,7 +435,7 @@ public class BuildWithBombs {
             CompoundTag nbt = new CompoundTag();
             creeper.save(nbt);
             nbt.putBoolean("PersistenceRequired", true);
-            nbt.putByte("ExplosionRadius", (byte) 2);
+            nbt.putByte("ExplosionRadius", (byte)2);
             creeper.load(nbt);
 
             HordeCreeper hordeCreeper = new HordeCreeper();
@@ -464,19 +475,13 @@ public class BuildWithBombs {
             }
         }
 
-
         if (isWave) {
-            
+
             ticksRemainingWave -= 1;
 
             if (ticksRemainingWave <= 0) {
                 ticksRemainingDowntime = TICKS_PER_DOWNTIME;
                 isWave = false;
-
-                resetGameBlocks(level);
-                clearAllItemsAndMobs(level);
-                createEndPortalFrame(level);
-                resetPlayerPositions(level);
             }
         } else {
             ticksRemainingDowntime -= 1;
@@ -488,16 +493,17 @@ public class BuildWithBombs {
         }
 
         int secondsUntilNextWave = ticksRemainingDowntime / TICKS_PER_SECOND;
+        int gameRemainingSeconds = (TICKS_PER_GAME - tickNumber) / TICKS_PER_SECOND;
 
-        String actionBarText = "TNT: " + workerJobs.size() + "/" + WORKER_COUNT + ", Creepers: " + horde.size() + ", Time until next wave: " + secondsUntilNextWave;
+        String actionBarText = "Diffusions: " + workerJobs.size() + "/" + WORKER_COUNT + ", Creepers: " + horde.size() + ", Time until next wave: " + secondsUntilNextWave + ", TIME LIMIT: " + gameRemainingSeconds;
 
         for (Player player : level.players()) {
             ServerPlayer serverPlayer = (ServerPlayer)player;
             serverPlayer.connection.send(new ClientboundSystemChatPacket(Component.literal(actionBarText), true));
         }
 
-        // 
-        // Run the "runOncePerTick()" function once by per tick by 
+        //
+        // Run the "runOncePerTick()" function once by per tick by
         // only triggering on the overworld update.
         //
         ResourceKey<Level> dimension = level.dimension();
@@ -522,7 +528,7 @@ public class BuildWithBombs {
 
             if (job.initComplete) {
                 /*
-                 * Logic for receiving new denoised blocks 
+                 * Logic for receiving new denoised blocks
                  * for each timestep.
                  */
                 int timestep = infer.getCurrentTimestep(job.id);
@@ -548,7 +554,7 @@ public class BuildWithBombs {
                             }
                         }
                     }
-                    
+
                     // Since the world can change while diffusing, we need to update
                     // the model's context continuously.
                     updateDiffusionContext(job);
@@ -569,6 +575,16 @@ public class BuildWithBombs {
         }
 
         tickNumber += 1;
+
+        if (gameRemainingSeconds <= 0) {
+            tickNumber = 0;
+
+            resetEverything(level);
+
+            LOGGER.info("world reset\n");
+            printMessageToAllPlayersInAllDimensions(level.getServer(), "world reset" + resetCount);
+            resetCount++;
+        }
     }
 
     /** @brief Unlike onLevelTick, this function runs once per tick 
@@ -748,7 +764,7 @@ public class BuildWithBombs {
             Blocks.DIRT.defaultBlockState(),
 
             // 2 - minecraft:white_concrete
-            Blocks.WHITE_CONCRETE.defaultBlockState(),
+            Blocks.NETHER_BRICKS.defaultBlockState(),
 
             // 3 - minecraft:oak_planks
             Blocks.COBBLESTONE.defaultBlockState(),
@@ -775,7 +791,7 @@ public class BuildWithBombs {
                     .setValue(BlockStateProperties.SLAB_TYPE, SlabType.DOUBLE),
 
             // 10 - minecraft:bookshelf
-            Blocks.BOOKSHELF.defaultBlockState(),
+            Blocks.GLOWSTONE.defaultBlockState(),
 
             // 11 - minecraft:gravel
             Blocks.GRAVEL.defaultBlockState(),
@@ -800,7 +816,7 @@ public class BuildWithBombs {
     static {
         BLOCK_MAPPING.put("air", 0);
         BLOCK_MAPPING.put("dirt", 1);
-        BLOCK_MAPPING.put("white concrete", 2);
+        BLOCK_MAPPING.put("nether bricks", 2);
         BLOCK_MAPPING.put("oak planks", 3);
         BLOCK_MAPPING.put("stone bricks", 4);
         BLOCK_MAPPING.put("grass block", 5);
