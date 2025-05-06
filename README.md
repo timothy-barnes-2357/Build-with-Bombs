@@ -34,10 +34,10 @@ For Linux, install the package "TensorRT 10.5 GA for Linux x86_64 and CUDA 12.0 
 
 3. Build the inference DLL using CMake.
 In the `inference_dll` directory, run:
-    * `cd mkdir build`
+    * `mkdir build`
     * `cd build` 
     * `cmake ..`
-    * `make`
+    * `cmake --build . --config Release`
 
 4. Copy the newly built library (`inference.dll` on Windows, `libinference.so` on Linux) to the mod's run folder. The `run` folder should have been created after the `./gradlew setup` step.
     * `cp libinference.so ../mod_neoforge/run`
