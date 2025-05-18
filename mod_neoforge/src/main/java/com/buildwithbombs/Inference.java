@@ -16,6 +16,11 @@
 
 package com.buildwithbombs;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 public class Inference {
 
     public native int startInit(int worker_count);
@@ -33,18 +38,52 @@ public class Inference {
     public native int getVersionPatch();
 
     public Inference() {
+
         String workingDir = System.getProperty("user.dir");
         String osName = System.getProperty("os.name").toLowerCase();
+
+        //
+        // Figure out if we're on Windows or Linux (or somewhere else that
+        // we don't support yet)
+        //
         String libName;
+        boolean isOsWindows = false;
 
         if (osName.contains("win")) {
             libName = "inference.dll";
+            isOsWindows = true;
         } else if (osName.contains("linux")) {
             libName = "libinference.so";
         } else {
             throw new UnsupportedOperationException("Unsupported operating system: " + osName);
         }
 
+        //
+        // If we're on Windows, we have .dlls inside the mod's .jar file to extract.
+        // easy mod loading. On Linux, the .so files need to be installed manually.
+        //
+        if (isOsWindows) {
+            String[] windowsDllNames = {
+                "inference.dll",
+                "cudart64_12.dll",
+                "nvinfer_10.dll",
+                "nvinfer_builder_resource_10.dll",
+                "nvonnxparser_10.dll"
+            };
+
+            for (String dllName: windowsDllNames) {
+                ExportBinaryFromJar(workingDir, dllName);
+            }
+        }
+
+        //
+        // On both Windows and Linux, extract the model parameter file
+        //
+        ExportBinaryFromJar(workingDir, "ddim_single_update.onnx");
+
+        //
+        // Attempt to load the dynamic library to interface it to Java
+        //
         String libPath = workingDir + java.io.File.separator + libName;
 
         try {
@@ -58,4 +97,24 @@ public class Inference {
             throw new RuntimeException(message, t);
         }
     }
+
+
+    private void ExportBinaryFromJar(String workingDir, String binaryName) {
+        Path outputPath = Path.of(workingDir, binaryName);
+
+        try (InputStream in = Inference.class.getResourceAsStream(binaryName)) {
+            if (in == null) {
+                String message = "Binary not found in .jar with name: " + binaryName;
+                throw new RuntimeException(message, null);
+            }
+
+            Files.copy(in, outputPath);
+            System.out.println("Extracted DLL to: " + outputPath);
+
+        } catch (Throwable t) {
+            String message = "Failed to extract binary '" + binaryName + "' to working directory: " + workingDir;
+            throw new RuntimeException(message, t);
+        }
+    }
 }
+
