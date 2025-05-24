@@ -48,6 +48,19 @@ In the `inference_dll` directory, run:
 
 7. Test the mod by running `./gradlew runClient`
 
+#### (Optional) Pack native libraries in .jar
+1. Copy inference.dll from `inference_dll\build\Release` to `mod_neoforge\native_libraries`.
+
+2. Copy the following NVIDIA DLLs to `mod_neoforge\native_libraries`:
+    * cudart64_12.dll (from the install of CUDA)
+    * nvinfer_10.dll  (from the install of TensorRT)
+    * nvinfer_builder_resource_10.dll (from the install of TensorRT)
+    * nvonnxparser_10.dll (from the install of TensorRT)
+
+3. Build the .jar file by running `./gradlew build -Ppack_native_libraries`. This built will take some time. The .jar under `mod_neoforge\build\libs` should be around 1 GB in size. 
+
+4. Verify the .dlls were included by running `jar tf /build/libs/buildwithbombs-*.jar` to see all included files. 
+
 ## Social
 
 [buildwithbombs.com](https://buildwithbombs.com)
