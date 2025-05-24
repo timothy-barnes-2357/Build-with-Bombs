@@ -43,7 +43,7 @@ public class Inference {
         String osName = System.getProperty("os.name").toLowerCase();
 
         //
-        // Figure out if we're on Windows or Linux (or somewhere else that
+        // Figure out if we're on Windows or Linux (or another OS that
         // we don't support yet)
         //
         String libName;
@@ -64,11 +64,12 @@ public class Inference {
         //
         if (isOsWindows) {
             String[] windowsDllNames = {
-                "inference.dll",
-                "cudart64_12.dll",
-                "nvinfer_10.dll",
-                "nvinfer_builder_resource_10.dll",
-                "nvonnxparser_10.dll"
+                    "inference.dll",
+                    "cudart64_12.dll",
+                    "nvinfer_10.dll",
+                    "nvinfer_builder_resource_10.dll",
+                    "nvonnxparser_10.dll",
+                    "ddim_single_update.onnx"
             };
 
             for (String dllName: windowsDllNames) {
@@ -98,22 +99,19 @@ public class Inference {
         }
     }
 
-
     private void ExportBinaryFromJar(String workingDir, String binaryName) {
         Path outputPath = Path.of(workingDir, binaryName);
 
         try (InputStream in = Inference.class.getResourceAsStream(binaryName)) {
             if (in == null) {
-                String message = "Binary not found in .jar with name: " + binaryName;
-                throw new RuntimeException(message, null);
+                System.out.println("Binary not found in .jar with name: " + binaryName);
+            } else {
+                Files.copy(in, outputPath);
+                System.out.println("Extracted DLL to: " + outputPath);
             }
 
-            Files.copy(in, outputPath);
-            System.out.println("Extracted DLL to: " + outputPath);
-
         } catch (Throwable t) {
-            String message = "Failed to extract binary '" + binaryName + "' to working directory: " + workingDir;
-            throw new RuntimeException(message, t);
+            System.out.println("Failed to extract binary '" + binaryName + "' to working directory: " + workingDir);
         }
     }
 }
