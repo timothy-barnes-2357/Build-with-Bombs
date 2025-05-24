@@ -187,3 +187,11 @@ idea {
         downloadJavadoc = true
     }
 }
+
+jar {
+	if (project.hasProperty('pack_native_libraries')) {
+		from('native_libraries') {
+			include '*'
+		}
+	}
+}

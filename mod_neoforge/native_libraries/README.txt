@@ -1,0 +1,1 @@
+This is the location (mod_neoforge\native_libraries) is where Grandle looks for native DLL/so files to package in the .jar for the mod. Copy the compiled inference.dll from the ../../inference_dll directory here. The TensorRT/CUDA libraries can also be copied here to avoid the end user needing to manually install them.
