@@ -1,4 +1,7 @@
-# Build with Bombs 💣
+# Build with Bombs (Creeper Horde experiment) 💣
+
+This branch has code for a game prototype involving waves of creepers that descending on the player. It's a gameplay experiment to see if building structures to fend off creepers makes for an interesting game.
+
 ## A Minecraft Java mod for procedural house generation by diffusion
 
 This repo contains two components:
